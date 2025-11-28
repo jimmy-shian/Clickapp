@@ -563,12 +563,22 @@ function App() {
   const selectedStep = script.steps.find(s => s.id === selectedStepId);
   const selectedStepIndex = script.steps.findIndex(s => s.id === selectedStepId);
 
-  const handleHudRectChange = (x: number, y: number, width: number, height: number) => {
+  const handleHudRectChange = (x: number, y: number, width: number, height: number, isCollapsed: boolean) => {
     hudRectRef.current = { x, y, width, height };
 
     // 非錄製狀態下，用 HUD 矩形當作觸控 overlay；錄製時 overlay 由 toggleRecord 控制
     if (mode !== AppMode.RECORDING) {
-      updateAndroidOverlayRect(x, y, width, height);
+      if (isCollapsed) {
+        // 縮小成圓點時，給 HUD 周圍多一圈 padding，避免因座標/尺寸誤差導致圓點點不到
+        const padding = 16;
+        const ox = Math.max(0, x - padding);
+        const oy = Math.max(0, y - padding);
+        const ow = width + padding * 2;
+        const oh = height + padding * 2;
+        updateAndroidOverlayRect(ox, oy, ow, oh);
+      } else {
+        updateAndroidOverlayRect(x, y, width, height);
+      }
     }
   };
 

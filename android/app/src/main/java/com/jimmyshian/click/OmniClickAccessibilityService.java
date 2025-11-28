@@ -308,8 +308,10 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     }
                 }
 
-                // 結束本 AccessibilityService 執行個體，視覺上等同「關閉 App」，但不會把服務從系統設定中取消勾選
-                stopSelf();
+                // 請求系統停用並關閉此無障礙服務，等同於在設定中將服務關閉
+                // 這樣下次使用者再打開 OmniClick App 時，MainActivity 會偵測到服務未啟用，
+                // 直接帶去無障礙設定重新開啟，避免 service 處於『已啟用但未執行』的中間狀態。
+                disableSelf();
             });
         }
     }
