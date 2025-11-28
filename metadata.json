@@ -1,0 +1,5 @@
+{
+  "name": "OmniClick Designer",
+  "description": "A smart auto-clicker logic designer. Record click patterns, visualize playback, and use Gemini AI to generate complex script sequences.",
+  "requestFramePermissions": []
+}

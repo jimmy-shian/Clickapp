@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">omniclick-designer</string>
+    <string name="title_activity_main">omniclick-designer</string>
+    <string name="package_name">com.jimmyshian.click</string>
+    <string name="custom_url_scheme">com.jimmyshian.click</string>
+</resources>
