@@ -39,6 +39,8 @@ interface FloatingHUDProps {
   // Playback Control
   playbackSpeed: number;
   setPlaybackSpeed: (speed: number) => void;
+  // Layout sync back to App / Android
+  onRectChange?: (x: number, y: number, width: number, height: number, isCollapsed: boolean) => void;
 }
 
 const formatTime = (ms: number) => {
@@ -72,7 +74,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onSelectStep,
   selectedStepId,
   playbackSpeed,
-  setPlaybackSpeed
+  setPlaybackSpeed,
+  onRectChange
 }) => {
   // Window State
   const [position, setPosition] = useState({ x: 20, y: 20 });
@@ -96,21 +99,33 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   const dragStart = useRef({ x: 0, y: 0 });
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
 
-  // --- SYNC WITH ANDROID ---
+  const clampToViewport = (x: number, y: number, width: number, height: number) => {
+    if (typeof window === 'undefined') return { x, y };
+    const maxX = Math.max(0, window.innerWidth - width);
+    const maxY = Math.max(0, window.innerHeight - height);
+    return {
+      x: Math.min(Math.max(0, x), maxX),
+      y: Math.min(Math.max(0, y), maxY)
+    };
+  };
+
+  // --- SYNC HUD RECT WITH APP / ANDROID ---
   useEffect(() => {
-    if (window.Android && window.Android.updateOverlayRect) {
-        // When collapsed, the window is a small circle (48x48)
-        const currentWidth = isCollapsed ? 48 : size.width;
-        const currentHeight = isCollapsed ? 48 : size.height;
-        
-        window.Android.updateOverlayRect(
-            Math.round(position.x), 
-            Math.round(position.y), 
-            Math.round(currentWidth), 
-            Math.round(currentHeight)
-        );
+    const currentWidth = isCollapsed ? 48 : size.width;
+    const currentHeight = isCollapsed ? 48 : size.height;
+    const x = Math.round(position.x);
+    const y = Math.round(position.y);
+    const w = Math.round(currentWidth);
+    const h = Math.round(currentHeight);
+
+    if (onRectChange) {
+      onRectChange(x, y, w, h, isCollapsed);
+    } else if (window.Android && window.Android.updateOverlayRect) {
+      window.Android.updateOverlayRect(x, y, w, h);
+    } else if (window.Android && window.Android.reportPos) {
+      window.Android.reportPos(x, y, w, h);
     }
-  }, [position, size, isCollapsed]);
+  }, [position, size, isCollapsed, onRectChange]);
 
   // --- Live Timer Effect ---
   useEffect(() => {
@@ -189,13 +204,16 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       if (isDragging) {
         const newX = e.clientX - dragStart.current.x;
         const newY = e.clientY - dragStart.current.y;
+        const currentWidth = isCollapsed ? 48 : size.width;
+        const currentHeight = isCollapsed ? 48 : size.height;
+        const clamped = clampToViewport(newX, newY, currentWidth, currentHeight);
         
         if (!hasMovedRef.current) {
-            const dx = Math.abs(newX - position.x);
-            const dy = Math.abs(newY - position.y);
+            const dx = Math.abs(clamped.x - position.x);
+            const dy = Math.abs(clamped.y - position.y);
             if (dx > 3 || dy > 3) hasMovedRef.current = true;
         }
-        setPosition({ x: newX, y: newY });
+        setPosition({ x: clamped.x, y: clamped.y });
       }
 
       if (isResizing) {
@@ -220,13 +238,16 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
             const touch = e.touches[0];
             const newX = touch.clientX - dragStart.current.x;
             const newY = touch.clientY - dragStart.current.y;
+            const currentWidth = isCollapsed ? 48 : size.width;
+            const currentHeight = isCollapsed ? 48 : size.height;
+            const clamped = clampToViewport(newX, newY, currentWidth, currentHeight);
 
             if (!hasMovedRef.current) {
-                const dx = Math.abs(newX - position.x);
-                const dy = Math.abs(newY - position.y);
+                const dx = Math.abs(clamped.x - position.x);
+                const dy = Math.abs(clamped.y - position.y);
                 if (dx > 3 || dy > 3) hasMovedRef.current = true;
             }
-            setPosition({ x: newX, y: newY });
+            setPosition({ x: clamped.x, y: clamped.y });
         }
 
         if (isResizing) {
@@ -260,7 +281,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [isDragging, isResizing, position.x, position.y]);
+  }, [isDragging, isResizing, position.x, position.y, size.width, size.height, isCollapsed]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

@@ -57,6 +57,19 @@ function App() {
   // Live Timer State
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
+  // HUD Rect for Android touch layer alignment
+  const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500 });
+
+  // Helper: sync overlay rect to Android if bridge is available
+  const updateAndroidOverlayRect = (x: number, y: number, width: number, height: number) => {
+    if (!window.Android) return;
+    if (window.Android.updateOverlayRect) {
+      window.Android.updateOverlayRect(x, y, width, height);
+    } else if (window.Android.reportPos) {
+      window.Android.reportPos(x, y, width, height);
+    }
+  };
+
   // --- Sync Speed Ref ---
   useEffect(() => {
       playbackSpeedRef.current = playbackSpeed;
@@ -177,12 +190,10 @@ function App() {
   const handleExitApp = () => {
       // Remove confirm dialog to ensure direct exit
       // Attempt various close methods
-      if (window.Android && window.Android.close) {
+      if (window.Android && typeof window.Android.close === 'function') {
           window.Android.close();
-      } else {
+      } else if (typeof window.close === 'function') {
           window.close();
-          // Fallback if window.close() is blocked (common in browsers)
-          window.location.href = "about:blank"; 
       }
   };
 
@@ -289,20 +300,30 @@ function App() {
   // --- Logic: Recording ---
 
   const handleCanvasClick = (x: number, y: number) => {
-    // CRITICAL: When recording, we intercept the click.
-    // To allow the user to interact with the underlying Android app simultaneously,
-    // we must manually forward this click to the Android layer.
-    if (mode === AppMode.RECORDING && window.Android && window.Android.performClick) {
-        window.Android.performClick(x, y);
-    }
-
     if (mode === AppMode.RECORDING) {
       const now = Date.now();
       
       // Calculate delay from the PREVIOUS action (or start time if first step)
       const delay = Math.max(0, now - lastActionTimeRef.current);
-      
+      let added = false;
+
       setScript(prev => {
+        const last = prev.steps[prev.steps.length - 1];
+
+        // 去重：如果與上一個 step 距離很近且時間差極短，視為同一次點擊，不再新增 step
+        if (last) {
+          const dx = last.x - x;
+          const dy = last.y - y;
+          const distSq = dx * dx + dy * dy;
+          const isNear = distSq < (12 * 12); // 半徑 12px 以內
+          const isVerySoon = delay < 150;    // 150ms 內的連續事件
+
+          if (isNear && isVerySoon) {
+            // 忽略這個點擊，不改變腳本
+            return prev;
+          }
+        }
+
         const newStep: ClickStep = {
             id: uuidv4(),
             x,
@@ -313,10 +334,14 @@ function App() {
             repeatInterval: 100
         };
 
+        added = true;
         return { ...prev, steps: [...prev.steps, newStep] };
       });
 
-      lastActionTimeRef.current = now;
+      // 只有在實際新增 step 時才更新 lastActionTimeRef
+      if (added) {
+        lastActionTimeRef.current = now;
+      }
     } else if (mode === AppMode.IDLE) {
         setSelectedStepId(null);
     }
@@ -350,10 +375,23 @@ function App() {
       });
       setMode(AppMode.IDLE);
       setSessionStartTime(null);
+
+      // 錄製結束：還原成只覆蓋 HUD 的觸控區
+      const r = hudRectRef.current;
+      updateAndroidOverlayRect(r.x, r.y, r.width, r.height);
     } else {
       // START RECORDING
       setMode(AppMode.RECORDING);
       setSelectedStepId(null);
+
+      // 錄製模式：讓觸控 overlay 佈滿整個螢幕，所有點擊都交給 ClickCanvas
+      if (typeof window !== 'undefined') {
+        const w = window.innerWidth || hudRectRef.current.width;
+        const h = window.innerHeight || hudRectRef.current.height;
+        updateAndroidOverlayRect(0, 0, w, h);
+      } else {
+        updateAndroidOverlayRect(0, 0, hudRectRef.current.width, hudRectRef.current.height);
+      }
       
       const now = Date.now();
       startTimeRef.current = now;
@@ -525,6 +563,15 @@ function App() {
   const selectedStep = script.steps.find(s => s.id === selectedStepId);
   const selectedStepIndex = script.steps.findIndex(s => s.id === selectedStepId);
 
+  const handleHudRectChange = (x: number, y: number, width: number, height: number) => {
+    hudRectRef.current = { x, y, width, height };
+
+    // 非錄製狀態下，用 HUD 矩形當作觸控 overlay；錄製時 overlay 由 toggleRecord 控制
+    if (mode !== AppMode.RECORDING) {
+      updateAndroidOverlayRect(x, y, width, height);
+    }
+  };
+
   return (
     // Updated: Background is transparent and pointer-events passed through
     <div 
@@ -577,6 +624,8 @@ function App() {
 
         playbackSpeed={playbackSpeed}
         setPlaybackSpeed={setPlaybackSpeed}
+
+        onRectChange={handleHudRectChange}
       />
 
       {/* Step Editor */}

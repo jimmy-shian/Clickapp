@@ -21,6 +21,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   // Dragging logic
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const lastTouchTimeRef = useRef(0);
 
   useEffect(() => {
     const handleWindowMouseMove = (e: MouseEvent) => {
@@ -83,6 +84,10 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only capture clicks on canvas if recording
     if (mode === AppMode.RECORDING) {
+      const now = Date.now();
+      // Ignore synthetic click that follows a touch event to avoid double-adding steps
+      if (now - lastTouchTimeRef.current < 400) return;
+
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -93,10 +98,12 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
       // Handle recording taps on mobile
       if (mode === AppMode.RECORDING) {
+          e.preventDefault();
           const touch = e.touches[0];
           const rect = e.currentTarget.getBoundingClientRect();
           const x = touch.clientX - rect.left;
           const y = touch.clientY - rect.top;
+          lastTouchTimeRef.current = Date.now();
           onCanvasClick(x, y);
       }
   };
@@ -135,8 +142,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
         {/* Background Layer (Transparent Overlay) */}
         <div className="absolute inset-0 pointer-events-none"></div>
 
-      {/* Render Connectors - Hidden during Playback */}
-      {mode !== AppMode.PLAYING && (
+      {/* Render Connectors - Only during recording */}
+      {mode === AppMode.RECORDING && (
           <svg className="absolute inset-0 w-full h-full pointer-events-none">
             <polyline
                 points={steps.map(s => `${s.x},${s.y}`).join(' ')}
@@ -149,8 +156,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
           </svg>
       )}
 
-      {/* Render Steps Markers - Hidden during Playback */}
-      {mode !== AppMode.PLAYING && steps.map((step, index) => {
+      {/* Render Steps Markers - Only during recording */}
+      {mode === AppMode.RECORDING && steps.map((step, index) => {
           const isSelected = selectedStepId === step.id;
           return (
             <div

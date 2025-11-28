@@ -6,7 +6,7 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
       // ★★★ 關鍵修正 1：設定相對路徑，讓 Android WebView 能讀取 ★★★
-      base: '', 
+      base: './', 
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
