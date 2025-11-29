@@ -331,6 +331,21 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             }
         }
 
+        // 從 overlay 內觸發原生儲存流程，使用者可選擇資料夾與檔名。
+        @JavascriptInterface
+        public void saveFile(String fileName, String content) {
+            Log.d(TAG, "saveFile from JS, fileName=" + fileName);
+            try {
+                Intent intent = new Intent(OmniClickAccessibilityService.this, FileSaveActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.putExtra("fileName", fileName);
+                intent.putExtra("content", content);
+                startActivity(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start FileSaveActivity", e);
+            }
+        }
+
         @JavascriptInterface
         public void close() {
             Handler mainHandler = new Handler(Looper.getMainLooper());

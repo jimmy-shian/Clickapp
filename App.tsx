@@ -15,6 +15,7 @@ declare global {
             tap?: (x: number, y: number) => void;
             reportPos?: (x: number, y: number, width: number, height: number) => void;
             openFilePicker?: (slot: string) => void;
+            saveFile?: (name: string, content: string) => void;
         };
         __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
     }
@@ -492,12 +493,25 @@ function App() {
   }, []);
 
   // --- Logic: File I/O (Export/Import) ---
-
+  
   const handleExportFile = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(script, null, 2));
+    const fileName = `${script.metadata.name.replace(/\s+/g, '_')}.json`;
+    const jsonContent = JSON.stringify(script, null, 2);
+
+    // If running inside Android overlay WebView, prefer native save flow if available
+    if (typeof window !== 'undefined' && (window as any).Android) {
+      const androidBridge = (window as any).Android as { saveFile?: (name: string, content: string) => void };
+      if (androidBridge && typeof androidBridge.saveFile === 'function') {
+        androidBridge.saveFile(fileName, jsonContent);
+        return;
+      }
+    }
+
+    // Fallback: regular browser download via data URL
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(jsonContent);
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${script.metadata.name.replace(/\s+/g, '_')}.json`);
+    downloadAnchorNode.setAttribute("download", fileName);
     document.body.appendChild(downloadAnchorNode);
     downloadAnchorNode.click();
     downloadAnchorNode.remove();
@@ -579,7 +593,9 @@ function App() {
         const oh = height + padding * 2;
         updateAndroidOverlayRect(ox, oy, ow, oh);
       } else {
-        updateAndroidOverlayRect(x, y, width, height);
+        // 展開狀態下，額外在下方多給一些高度，確保底部按鈕也在觸控 overlay 範圍內
+        const extraBottom = 24; // dp / CSS px，實際會乘上 density
+        updateAndroidOverlayRect(x, y, width, height + extraBottom);
       }
     }
   };

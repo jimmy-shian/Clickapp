@@ -25,8 +25,13 @@ public class FilePickerActivity extends Activity {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain"});
-
+        // 2. 修正這裡：加入 "text/*" 與 "application/octet-stream"
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[] {
+                "text/plain",            // 標準 txt
+                "text/*",                // 重點修正：這能涵蓋大部分被誤判的 txt 檔
+                "application/json",      // 標準 json
+                "application/octet-stream" // 有些手機會把未知的文字檔視為二進位流，加這行更保險
+        });
         Intent chooser = Intent.createChooser(intent, "Select JSON file");
         startActivityForResult(chooser, REQ_PICK_FILE);
     }

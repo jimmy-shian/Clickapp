@@ -30,6 +30,12 @@
             android:exported="false"
             android:theme="@style/AppTheme.NoActionBarLaunch" />
 
+        <!-- 專供 Accessibility 服務呼叫的檔案儲存 Activity -->
+        <activity
+            android:name=".FileSaveActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NoActionBarLaunch" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
