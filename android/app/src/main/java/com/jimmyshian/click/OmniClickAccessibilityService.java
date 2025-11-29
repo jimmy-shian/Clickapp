@@ -3,6 +3,7 @@ package com.jimmyshian.click;
 import android.accessibilityservice.AccessibilityService;
 import android.accessibilityservice.GestureDescription;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.os.Build;
@@ -33,6 +34,7 @@ import androidx.annotation.RequiresApi;
 public class OmniClickAccessibilityService extends AccessibilityService {
 
     private static final String TAG = "OmniClickAccessibilityService";
+    private static OmniClickAccessibilityService instance;
     private WindowManager windowManager;
     private WebView webView;
     private WebViewAssetLoader assetLoader;
@@ -66,6 +68,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         super.onServiceConnected();
+        instance = this;
         Log.d(TAG, "onServiceConnected called!");
         density = getResources().getDisplayMetrics().density;
 
@@ -90,6 +93,30 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         createWebViewOverlay();
         createTouchOverlay();
         Log.d(TAG, "Overlay created successfully");
+    }
+
+    public static OmniClickAccessibilityService getInstance() {
+        return instance;
+    }
+
+    // 由 FilePickerActivity 在選檔完成後呼叫，將檔案內容回傳給前端 JS
+    public void onFilePickedFromActivity(String slot, String fileName, String content) {
+        if (webView == null) {
+            Log.w(TAG, "onFilePickedFromActivity called but webView is null");
+            return;
+        }
+
+        Log.d(TAG, "onFilePickedFromActivity slot=" + slot + ", fileName=" + fileName);
+
+        final String safeSlot = slot == null ? "" : slot;
+        final String safeName = fileName == null ? "" : fileName.replace("\\", "\\\\").replace("\"", "\\\"");
+        final String safeContent = content == null ? "" : content
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n");
+
+        String js = "window.__omniclickOnFilePicked && window.__omniclickOnFilePicked(\"" + safeSlot + "\",\"" + safeName + "\",\"" + safeContent + "\")";
+        webView.post(() -> webView.evaluateJavascript(js, null));
     }
 
     private void createWebViewOverlay() {
@@ -199,6 +226,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        instance = null;
         if (windowManager != null) {
             if (webView != null) {
                 windowManager.removeView(webView);
@@ -287,6 +315,20 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         @JavascriptInterface
         public void tap(float x, float y) {
             performTapGesture(x, y);
+        }
+
+        // 從 overlay 內開啟原生檔案選擇器。slot 用來區分要填到哪一個輸入框（如 "import", "song", "layout"）。
+        @JavascriptInterface
+        public void openFilePicker(String slot) {
+            Log.d(TAG, "openFilePicker from JS, slot=" + slot);
+            try {
+                Intent intent = new Intent(OmniClickAccessibilityService.this, FilePickerActivity.class);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                intent.putExtra("slot", slot);
+                startActivity(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start FilePickerActivity", e);
+            }
         }
 
         @JavascriptInterface

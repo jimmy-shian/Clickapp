@@ -14,7 +14,9 @@ declare global {
             updateOverlayRect?: (x: number, y: number, width: number, height: number) => void;
             tap?: (x: number, y: number) => void;
             reportPos?: (x: number, y: number, width: number, height: number) => void;
-        }
+            openFilePicker?: (slot: string) => void;
+        };
+        __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
     }
 }
 

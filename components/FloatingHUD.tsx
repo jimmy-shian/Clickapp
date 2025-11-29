@@ -81,6 +81,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   const [position, setPosition] = useState({ x: 20, y: 20 });
   const [size, setSize] = useState({ width: 380, height: 500 }); // Slightly taller default
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAndroidBridge, setIsAndroidBridge] = useState(false);
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
@@ -108,6 +109,62 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       y: Math.min(Math.max(0, y), maxY)
     };
   };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const isPortrait = viewportH >= viewportW;
+    const targetW = Math.round(viewportW * 0.75);
+    const targetH = Math.round(viewportH * (isPortrait ? 0.65 : 0.9));
+
+    setSize(prev => {
+      if (prev.width !== 380 || prev.height !== 500) return prev;
+      return {
+        width: Math.max(250, targetW),
+        height: Math.max(200, targetH)
+      };
+    });
+
+    // 僅在 Accessibility Service 的 overlay WebView 中標記為 AndroidBridge：
+    // 該 WebView 是用 https://appassets.androidplatform.net/assets/public/index.html 載入，
+    // host 為 appassets.androidplatform.net；一般 OmniClick App / Browser 則不是這個 host。
+    if (window.location && window.location.hostname === 'appassets.androidplatform.net') {
+      setIsAndroidBridge(true);
+    }
+  }, []);
+
+  // Register global callback for native FilePickerActivity -> JS bridge
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isAndroidBridge) return;
+
+    const handler = (slot: string, fileName: string, content: string) => {
+      try {
+        const safeName = fileName || 'selected.json';
+        if (slot === 'import') {
+          const file = new File([content], safeName, { type: 'application/json' });
+          onLoadFile(file);
+        } else if (slot === 'song') {
+          const file = new File([content], safeName, { type: 'application/json' });
+          setSongFile(file);
+        } else if (slot === 'layout') {
+          const file = new File([content], safeName, { type: 'application/json' });
+          setMapFile(file);
+        }
+      } catch (e) {
+        console.error('Failed to handle picked file', e);
+      }
+    };
+
+    (window as any).__omniclickOnFilePicked = handler;
+
+    return () => {
+      if ((window as any).__omniclickOnFilePicked === handler) {
+        (window as any).__omniclickOnFilePicked = undefined;
+      }
+    };
+  }, [isAndroidBridge, onLoadFile]);
 
   // --- SYNC HUD RECT WITH APP / ANDROID ---
   useEffect(() => {
@@ -220,8 +277,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
           const dx = e.clientX - resizeStart.current.x;
           const dy = e.clientY - resizeStart.current.y;
           setSize({
-              width: Math.max(340, resizeStart.current.w + dx),
-              height: Math.max(400, resizeStart.current.h + dy)
+              width: Math.max(250, resizeStart.current.w + dx),
+              height: Math.max(200, resizeStart.current.h + dy)
           });
       }
     };
@@ -256,8 +313,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
             const dx = touch.clientX - resizeStart.current.x;
             const dy = touch.clientY - resizeStart.current.y;
             setSize({
-                width: Math.max(340, resizeStart.current.w + dx),
-                height: Math.max(400, resizeStart.current.h + dy)
+                width: Math.max(250, resizeStart.current.w + dx),
+                height: Math.max(200, resizeStart.current.h + dy)
             });
         }
     };
@@ -344,7 +401,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       >
-        <div className="flex items-center gap-2 text-base font-semibold text-gray-300 pointer-events-none">
+        <div className="flex items-center gap-2 text-[12px] font-semibold text-gray-300 pointer-events-none">
            {isScriptLoaded ? (
                <button 
                 onClick={(e) => { e.stopPropagation(); onCloseScript(); }}
@@ -384,7 +441,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       </div>
 
       {/* Content Area */}
-      <div className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+      <div className="flex-1 flex flex-col p-4 gap-4 overflow-hidden overflow-y-auto">
         
         {!isScriptLoaded ? (
             // === LIST VIEW ===
@@ -395,7 +452,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                     </h2>
                     <button 
                         onClick={onCreateNew}
-                        className="bg-blue-600 hover:bg-blue-500 text-white text-base px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                        className="bg-blue-600 hover:bg-blue-500 text-white text-[12px] px-2 py-1 rounded flex items-center gap-1 transition-colors"
                     >
                         <Plus size={14} /> New
                     </button>
@@ -403,7 +460,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 
                 <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 mb-20">
                     {savedScripts.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-base text-center border-2 border-dashed border-white/5 rounded-lg">
+                        <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px] text-center border-2 border-dashed border-white/5 rounded-lg">
                             <p>No scripts saved.</p>
                             <p className="mt-1">Create new or import.</p>
                         </div>
@@ -416,9 +473,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                             >
                                 <div className="flex justify-between items-start">
                                     <div className="font-medium text-lg text-gray-200 group-hover:text-white truncate pr-6">{s.name}</div>
-                                    <div className="text-[14px] text-gray-500">{new Date(s.updatedAt).toLocaleDateString()}</div>
+                                    <div className="text-[10px] text-gray-500">{new Date(s.updatedAt).toLocaleDateString()}</div>
                                 </div>
-                                <div className="text-[14px] text-gray-400 mt-1 flex gap-2">
+                                <div className="text-[10px] text-gray-400 mt-1 flex gap-2">
                                     <span>{s.stepCount} steps</span>
                                 </div>
                                 <button 
@@ -434,15 +491,24 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                     
                     {/* Fixed File Upload for Mobile: Overlay Input */}
                     <div className="relative mt-2 pt-2 border-t border-white/10">
-                        <div className="flex items-center justify-center gap-2 py-2 text-base text-gray-400 hover:text-white transition-colors">
+                        <div 
+                            className="flex items-center justify-center gap-2 py-2 text-[12px] text-gray-400 hover:text-white transition-colors"
+                            onClick={() => {
+                                if (isAndroidBridge && window.Android && window.Android.openFilePicker) {
+                                    window.Android.openFilePicker('import');
+                                }
+                            }}
+                        >
                             <Upload size={14} /> Import JSON File
                         </div>
-                        <input 
-                            type="file" 
-                            onChange={handleFileChange} 
-                            accept=".json" 
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        />
+                        {!isAndroidBridge && (
+                            <input 
+                                type="file" 
+                                onChange={handleFileChange} 
+                                accept=".json" 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                        )}
                     </div>
                 </div>
 
@@ -469,28 +535,38 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                             <div className="space-y-3">
                                 <div className="flex flex-col gap-1 relative">
                                     <label className="text-[10px] text-gray-400 uppercase">1. Song Source (TXT/JSON)</label>
-                                    <div className={`flex items-center gap-2 p-2 rounded text-xs border ${songFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}>
+                                    <div 
+                                        className={`flex items-center gap-2 p-2 rounded text-xs border ${songFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}
+                                        onClick={() => {
+                                            if (isAndroidBridge && window.Android && window.Android.openFilePicker) {
+                                                window.Android.openFilePicker('song');
+                                            }
+                                        }}
+                                    >
                                         <Music size={14}/> {songFile ? songFile.name : "Select Song JSON..."}
                                     </div>
-                                    <input 
-                                        type="file" 
-                                        accept=".json,.txt" 
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                                        onChange={(e) => setSongFile(e.target.files?.[0] || null)} 
-                                    />
                                 </div>
 
                                 <div className="flex flex-col gap-1 relative">
                                     <label className="text-[10px] text-gray-400 uppercase">2. Layout Script (JSON - 15 pts)</label>
-                                    <div className={`flex items-center gap-2 p-2 rounded text-xs border ${mapFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}>
+                                    <div 
+                                        className={`flex items-center gap-2 p-2 rounded text-xs border ${mapFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}
+                                        onClick={() => {
+                                            if (isAndroidBridge && window.Android && window.Android.openFilePicker) {
+                                                window.Android.openFilePicker('layout');
+                                            }
+                                        }}
+                                    >
                                         <FileText size={14}/> {mapFile ? mapFile.name : "Select Layout Script..."}
                                     </div>
-                                    <input 
-                                        type="file" 
-                                        accept=".json" 
-                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                                        onChange={(e) => setMapFile(e.target.files?.[0] || null)} 
-                                    />
+                                    {!isAndroidBridge && (
+                                        <input 
+                                            type="file" 
+                                            accept=".json" 
+                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                            onChange={(e) => setMapFile(e.target.files?.[0] || null)} 
+                                        />
+                                    )}
                                 </div>
 
                                 <button 
@@ -513,7 +589,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                     type="text" 
                     value={script.metadata.name}
                     onChange={(e) => setScriptName(e.target.value)}
-                    className="bg-transparent border-b border-white/10 focus:border-blue-500 text-xl font-bold text-white px-1 py-1 mb-4 outline-none w-full"
+                    className="bg-transparent border-b border-white/10 focus:border-blue-500 text-base font-bold text-white px-1 py-1 mb-4 outline-none w-full"
                     placeholder="Script Name"
                 />
 
@@ -521,16 +597,16 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 <div className="flex justify-between items-end border-b border-white/10 pb-2 mb-2 shrink-0">
                   <div className="flex flex-col gap-2">
                     <div>
-                        <div className="text-[14px] text-gray-400 uppercase tracking-wider">Status</div>
-                        <div className={`text-lg font-bold ${mode === AppMode.RECORDING ? 'text-red-400 animate-pulse' : mode === AppMode.PLAYING ? 'text-green-400' : 'text-gray-200'}`}>
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">Status</div>
+                        {/* <div className={`text-lg font-bold ${mode === AppMode.RECORDING ? 'text-red-400 animate-pulse' : mode === AppMode.PLAYING ? 'text-green-400' : 'text-gray-200'}`}>
                           {mode}
-                        </div>
+                        </div> */}
                     </div>
 
                     {/* Playback Speed Slider */}
                     <div className="flex flex-col gap-1 w-32 border-t border-white/10 pt-2">
-                        <label className="text-[10px] text-gray-400 uppercase tracking-wider flex justify-between items-center">
-                            <div className="flex items-center gap-1"><Gauge size={10}/> Play Speed</div>
+                        <label className="text-[12px] text-gray-400 uppercase tracking-wider flex justify-between items-center">
+                            <div className="flex items-center gap-1"><Gauge size={12}/> Play Speed</div>
                             <span className="text-blue-300 font-mono">{playbackSpeed.toFixed(1)}x</span>
                         </label>
                         <input 
@@ -547,13 +623,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
                   <div className="flex gap-4">
                      <div className="text-right min-w-[80px]">
-                        <div className="text-[14px] text-gray-400 uppercase tracking-wider">Duration</div>
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">Duration</div>
                         <div className="text-lg font-mono text-white font-semibold">
                             {formatTime(displayDuration)}
                         </div>
                      </div>
                      <div className="text-right">
-                        <div className="text-[14px] text-gray-400 uppercase tracking-wider">Steps</div>
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wider">Steps</div>
                         <div className="text-lg font-mono text-gray-200">{script.steps.length}</div>
                      </div>
                   </div>
@@ -562,7 +638,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 {/* Primary Actions */}
                 <div className="grid grid-cols-2 gap-2 shrink-0">
                   <button
-                    onClick={onRecordToggle}
+                    onClick={() => {
+                        // 如果當前 "不是" 錄影模式 (代表即將開始錄影)，則縮小視窗
+                        if (mode !== AppMode.RECORDING) {
+                        setIsCollapsed(true);
+                        }
+                        onRecordToggle(); // 執行原本的錄影動作
+                    }}
                     className={`flex items-center justify-center gap-2 px-3 py-3 rounded-lg font-medium transition-all ${
                       mode === AppMode.RECORDING
                         ? 'bg-red-500/80 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]'
@@ -574,7 +656,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   </button>
 
                   <button
-                    onClick={onPlayToggle}
+                    onClick={() => {
+                        // 如果目前不是播放模式 (代表即將開始播放)，則縮小視窗
+                        if (mode !== AppMode.PLAYING) {
+                        setIsCollapsed(true);
+                        }
+                        onPlayToggle(); // 執行原本的播放動作
+                    }}
                     disabled={script.steps.length === 0 || mode === AppMode.RECORDING}
                     className={`flex items-center justify-center gap-2 px-3 py-3 rounded-lg font-medium transition-all ${
                       mode === AppMode.PLAYING
@@ -589,7 +677,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
                 {/* Loop Option */}
                 <div className="flex items-center justify-between px-1 py-2 shrink-0">
-                    <label className="flex items-center gap-2 text-base text-gray-300 cursor-pointer select-none hover:text-white transition-colors">
+                    <label className="flex items-center gap-2 text-[12px] text-gray-300 cursor-pointer select-none hover:text-white transition-colors">
                         <input 
                             type="checkbox" 
                             checked={script.metadata.loop}
@@ -601,9 +689,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 </div>
 
                 {/* Step List */}
-                <div className="flex-1 overflow-y-auto border border-white/10 rounded bg-black/20 p-1 custom-scrollbar min-h-0">
+                <div className="flex-1 overflow-y-auto border border-white/10 rounded bg-black/20 p-1 custom-scrollbar min-h-[10rem]">
                     {script.steps.length === 0 ? (
-                        <div className="h-full flex items-center justify-center text-base text-gray-600 italic">
+                        <div className="h-full flex items-center justify-center text-[12px] text-gray-600 italic">
                             No clicks recorded yet.
                         </div>
                     ) : (
@@ -642,13 +730,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                                       
                                       {/* Center/Right: Time */}
                                       <div className="flex justify-end pr-4">
-                                          <span className={`font-mono text-3xl font-black tabular-nums ${selectedStepId === step.id ? 'text-white' : 'text-gray-200'}`}>
+                                          <span className={`font-mono text-[12px] font-black tabular-nums ${selectedStepId === step.id ? 'text-white' : 'text-gray-200'}`}>
                                               {displayTime}
                                           </span>
                                       </div>
                                       
                                       {/* Right: Coords (Fixed width to prevent time shift) */}
-                                      <div className={`w-24 text-right font-mono text-[14px] ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
+                                      <div className={`w-24 text-right font-mono text-[10px] ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
                                           {Math.round(step.x)},{Math.round(step.y)}
                                       </div>
                                   </div>
@@ -661,22 +749,22 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 {/* Bottom Actions */}
                 <div className="flex gap-2 border-t border-white/10 pt-3 mt-2 shrink-0 relative">
                   {showSaveFeedback && (
-                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-500 text-white text-base px-2 py-1 rounded shadow-lg flex items-center gap-1 animate-in fade-in zoom-in duration-200">
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[12px] px-2 py-1 rounded shadow-lg flex items-center gap-1 animate-in fade-in zoom-in duration-200">
                           <Check size={12}/> Saved!
                       </div>
                   )}
                   
-                  <button onClick={onSaveLocal} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-blue-500/20 transition-colors text-base text-gray-400 hover:text-blue-400 group">
+                  <button onClick={onSaveLocal} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-blue-500/20 transition-colors text-[12px] text-gray-400 hover:text-blue-400 group">
                     <Save size={16} className="group-hover:scale-110 transition-transform"/>
                     <span>Save</span>
                   </button>
                   
-                  <button onClick={onExport} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-white/10 transition-colors text-base text-gray-400 hover:text-white group">
+                  <button onClick={onExport} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-white/10 transition-colors text-[12px] text-gray-400 hover:text-white group">
                     <FileJson size={16} className="group-hover:scale-110 transition-transform"/>
                     <span>Export</span>
                   </button>
 
-                  <button onClick={onClear} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-red-500/20 transition-colors text-base text-gray-400 hover:text-red-400 group">
+                  <button onClick={onClear} className="flex-1 flex flex-col items-center gap-1 p-2 rounded hover:bg-red-500/20 transition-colors text-[12px] text-gray-400 hover:text-red-400 group">
                     <Trash2 size={16} className="group-hover:scale-110 transition-transform"/>
                     <span>Clear</span>
                   </button>
@@ -687,11 +775,15 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
       {/* Resize Handle */}
       <div 
-        onMouseDown={handleResizeMouseDown}
-        onTouchStart={handleResizeTouchStart}
-        className="absolute bottom-0 right-0 w-8 h-8 cursor-se-resize flex items-center justify-center text-white/30 hover:text-white/80 transition-colors z-50 touch-none"
+        className="absolute bottom-0 right-0 w-16 h-16 z-50 pointer-events-none flex items-end justify-end"
       >
+        <div
+          onMouseDown={handleResizeMouseDown}
+          onTouchStart={handleResizeTouchStart}
+          className="pointer-events-auto w-8 h-8 cursor-se-resize flex items-center justify-center text-white/30 hover:text-white/80 transition-colors"
+        >
           <CornerRightDown size={14} strokeWidth={3} />
+        </div>
       </div>
     </div>
   );
