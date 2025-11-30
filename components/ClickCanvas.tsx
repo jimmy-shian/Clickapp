@@ -5,7 +5,7 @@ interface ClickCanvasProps {
   mode: AppMode;
   steps: ClickStep[];
   onCanvasClick: (x: number, y: number) => void;
-  onStepClick: (id: string, e: React.MouseEvent) => void;
+  onStepClick: (id: string) => void;
   onStepUpdate: (updatedStep: ClickStep) => void; 
   selectedStepId: string | null;
 }
@@ -23,9 +23,12 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   const dragOffset = useRef({ x: 0, y: 0 });
   const lastTouchTimeRef = useRef(0);
 
+  const isRecording = mode === AppMode.RECORDING;
+  const isEditing = !isRecording && mode === AppMode.IDLE && selectedStepId !== null;
+
   useEffect(() => {
     const handleWindowMouseMove = (e: MouseEvent) => {
-      if (draggingStepId && mode === AppMode.IDLE) {
+      if (draggingStepId && !isRecording && mode !== AppMode.PLAYING) {
         const step = steps.find(s => s.id === draggingStepId);
         if (step) {
           onStepUpdate({
@@ -42,13 +45,14 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
         setDraggingStepId(null);
       }
     };
-    
+
     // Touch support for dragging points
     const handleWindowTouchMove = (e: TouchEvent) => {
-      if (draggingStepId && mode === AppMode.IDLE) {
+      if (draggingStepId && !isRecording && mode !== AppMode.PLAYING) {
         e.preventDefault();
         const step = steps.find(s => s.id === draggingStepId);
         const touch = e.touches[0];
+
         if (step) {
           onStepUpdate({
             ...step,
@@ -80,10 +84,9 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
     };
   }, [draggingStepId, mode, steps, onStepUpdate]);
 
-
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // Only capture clicks on canvas if recording
-    if (mode === AppMode.RECORDING) {
+    if (isRecording) {
       const now = Date.now();
       // Ignore synthetic click that follows a touch event to avoid double-adding steps
       if (now - lastTouchTimeRef.current < 400) return;
@@ -94,89 +97,92 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
       onCanvasClick(x, y);
     }
   };
-  
+
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-      // Handle recording taps on mobile
-      if (mode === AppMode.RECORDING) {
-          e.preventDefault();
-          const touch = e.touches[0];
-          const rect = e.currentTarget.getBoundingClientRect();
-          const x = touch.clientX - rect.left;
-          const y = touch.clientY - rect.top;
-          lastTouchTimeRef.current = Date.now();
-          onCanvasClick(x, y);
-      }
+    // Handle recording taps on mobile
+    if (isRecording) {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      lastTouchTimeRef.current = Date.now();
+      onCanvasClick(x, y);
+    }
   };
 
   const handleStepMouseDown = (e: React.MouseEvent, step: ClickStep) => {
-    if (mode !== AppMode.IDLE) return;
-    
+    if (isRecording || mode === AppMode.PLAYING) return;
+
     e.stopPropagation();
-    onStepClick(step.id, e);
-    
+    onStepClick(step.id);
+
     setDraggingStepId(step.id);
     dragOffset.current = {
-        x: e.clientX - step.x,
-        y: e.clientY - step.y
+      x: e.clientX - step.x,
+      y: e.clientY - step.y
     };
   };
-  
+
   const handleStepTouchStart = (e: React.TouchEvent, step: ClickStep) => {
-      if (mode !== AppMode.IDLE) return;
-      e.stopPropagation();
-      setDraggingStepId(step.id);
-      const touch = e.touches[0];
-      dragOffset.current = {
-          x: touch.clientX - step.x,
-          y: touch.clientY - step.y
-      };
+    if (isRecording || mode === AppMode.PLAYING) return;
+    e.stopPropagation();
+    onStepClick(step.id);
+    setDraggingStepId(step.id);
+    const touch = e.touches[0];
+    dragOffset.current = {
+      x: touch.clientX - step.x,
+      y: touch.clientY - step.y
+    };
   };
 
   return (
     <div
-      className={`relative w-full h-screen overflow-hidden ${mode === AppMode.RECORDING ? 'cursor-crosshair pointer-events-auto' : 'pointer-events-none'}`}
+      className={`relative w-full h-screen overflow-hidden ${
+        isRecording || isEditing ? 'pointer-events-auto' : 'pointer-events-none'
+      } ${isRecording ? 'cursor-crosshair' : ''}`}
       style={{ backgroundColor: 'transparent' }}
       onClick={handleClick}
       onTouchStart={handleTouchStart}
     >
-        {/* Background Layer (Transparent Overlay) */}
-        <div className="absolute inset-0 pointer-events-none"></div>
+      {/* Background Layer (Transparent Overlay) */}
+      <div className="absolute inset-0 pointer-events-none"></div>
 
-      {/* Render Connectors - Only during recording */}
-      {mode === AppMode.RECORDING && (
-          <svg className="absolute inset-0 w-full h-full pointer-events-none">
-            <polyline
-                points={steps.map(s => `${s.x},${s.y}`).join(' ')}
-                fill="none"
-                stroke="#3b82f6"
-                strokeWidth="1"
-                strokeDasharray="4 4"
-                className="opacity-40"
-            />
-          </svg>
+      {/* Render Connectors - During recording or editing */}
+      {(isRecording || isEditing) && (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <polyline
+            points={steps.map(s => `${s.x},${s.y}`).join(' ')}
+            fill="none"
+            stroke="#3b82f6"
+            strokeWidth="1"
+            strokeDasharray="4 4"
+            className="opacity-40"
+          />
+        </svg>
       )}
 
-      {/* Render Steps Markers - Only during recording */}
-      {mode === AppMode.RECORDING && steps.map((step, index) => {
-          const isSelected = selectedStepId === step.id;
-          return (
-            <div
-              key={step.id}
-              onMouseDown={(e) => handleStepMouseDown(e, step)}
-              onTouchStart={(e) => handleStepTouchStart(e, step)}
-              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white transition-transform z-10 select-none pointer-events-auto
-                ${isSelected ? 'bg-blue-600 border-white scale-125 shadow-[0_0_10px_rgba(37,99,235,0.8)] z-20' : 'bg-blue-500/30 border-blue-400 hover:bg-blue-500/60'}
-                ${mode === AppMode.IDLE ? 'cursor-grab active:cursor-grabbing' : ''}
-              `}
-              style={{ 
-                  left: step.x, 
-                  top: step.y,
-                  borderColor: isSelected ? '#fbbf24' : undefined
-              }}
-            >
-              {index + 1}
-            </div>
-          );
+      {/* Render Steps Markers - During recording or editing */}
+      {(isRecording || isEditing) && steps.map((step, index) => {
+        const isSelected = selectedStepId === step.id;
+        return (
+          <div
+            key={step.id}
+            onMouseDown={(e) => handleStepMouseDown(e, step)}
+            onTouchStart={(e) => handleStepTouchStart(e, step)}
+            className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white transition-transform z-10 select-none pointer-events-auto
+              ${isSelected ? 'bg-blue-600 border-white scale-125 shadow-[0_0_10px_rgba(37,99,235,0.8)] z-20' : 'bg-blue-500/30 border-blue-400 hover:bg-blue-500/60'}
+              ${mode === AppMode.IDLE ? 'cursor-grab active:cursor-grabbing' : ''}
+            `}
+            style={{
+              left: step.x,
+              top: step.y,
+              borderColor: isSelected ? '#fbbf24' : undefined
+            }}
+          >
+            {index + 1}
+          </div>
+        );
       })}
     </div>
   );

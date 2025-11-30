@@ -1,5 +1,5 @@
+import React, { useState, useEffect, useRef } from 'react';
 
-import React, { useState, useEffect } from 'react';
 import { ClickStep } from '../types';
 import { X, Copy, Clock, Repeat, MapPin } from 'lucide-react';
 
@@ -14,74 +14,166 @@ interface StepEditorProps {
 }
 
 const formatTime = (ms: number) => {
-    const minutes = Math.floor(ms / 60000);
-    const seconds = Math.floor((ms % 60000) / 1000);
-    const milliseconds = Math.floor(ms % 1000);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  const milliseconds = Math.floor(ms % 1000);
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
 };
 
 const parseFormattedTime = (timeStr: string): number | null => {
-    // Expected format MM:SS.mmm
-    const parts = timeStr.split(':');
-    if (parts.length !== 2) return null;
-    
-    const minutes = parseInt(parts[0], 10);
-    const secondsParts = parts[1].split('.');
-    
-    if (secondsParts.length !== 2) return null;
-    const seconds = parseInt(secondsParts[0], 10);
-    const ms = parseInt(secondsParts[1], 10);
-    
-    if (isNaN(minutes) || isNaN(seconds) || isNaN(ms)) return null;
-    
-    return (minutes * 60000) + (seconds * 1000) + ms;
+  // Expected format MM:SS.mmm
+  const parts = timeStr.split(':');
+  if (parts.length !== 2) return null;
+  
+  const minutes = parseInt(parts[0], 10);
+  const secondsParts = parts[1].split('.');
+  
+  if (secondsParts.length !== 2) return null;
+  const seconds = parseInt(secondsParts[0], 10);
+  const ms = parseInt(secondsParts[1], 10);
+  
+  if (isNaN(minutes) || isNaN(seconds) || isNaN(ms)) return null;
+  
+  return (minutes * 60000) + (seconds * 1000) + ms;
 };
 
 export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeTime, playbackSpeed = 1, onUpdate, onClose, onDelete }) => {
   const [localTimeStr, setLocalTimeStr] = useState('');
-  
+  const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null);
+  const [isDraggingPanel, setIsDraggingPanel] = useState(false);
+  const dragStartRef = useRef({ x: 0, y: 0, left: 0, top: 0 });
+
   // Sync local time string when step changes from outside or on mount
   // Scale down the time by playback speed for display
   useEffect(() => {
-      if (cumulativeTime !== undefined) {
-          setLocalTimeStr(formatTime(cumulativeTime / playbackSpeed));
-      }
+    if (cumulativeTime !== undefined) {
+      setLocalTimeStr(formatTime(cumulativeTime / playbackSpeed));
+    }
   }, [cumulativeTime, step.id, playbackSpeed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setPanelPos({ left: step.x + 20, top: step.y });
+      return;
+    }
+    const maxLeft = window.innerWidth - 280;
+    const maxTop = window.innerHeight - 350;
+    const left = Math.min(maxLeft, Math.max(20, step.x + 20));
+    const top = Math.min(maxTop, Math.max(20, step.y));
+    setPanelPos({ left, top });
+  }, [step.id]);
 
   const handleChange = (field: keyof ClickStep, value: any) => {
     onUpdate({ ...step, [field]: value });
   };
 
   const handleTimeBlur = () => {
-      // Calculate new delay based on edited time
-      const newTimeMs = parseFormattedTime(localTimeStr);
-      if (newTimeMs !== null && cumulativeTime !== undefined) {
-          // Reverse Scale: Convert user input time back to base time
-          const newTimeBase = newTimeMs * playbackSpeed;
-          
-          // Calculate the base end time of the previous step
-          const prevStepsEndTimeBase = cumulativeTime - step.delay;
-          
-          // New delay is the difference
-          const newDelay = Math.max(0, newTimeBase - prevStepsEndTimeBase);
-          
-          handleChange('delay', newDelay);
-          
-          // Format the input back nicely
-          setLocalTimeStr(formatTime(newTimeMs)); 
-      } else {
-          // Revert if invalid
-          if(cumulativeTime !== undefined) {
-              setLocalTimeStr(formatTime(cumulativeTime / playbackSpeed));
-          }
+    // Calculate new delay based on edited time
+    const newTimeMs = parseFormattedTime(localTimeStr);
+    if (newTimeMs !== null && cumulativeTime !== undefined) {
+      // Reverse Scale: Convert user input time back to base time
+      const newTimeBase = newTimeMs * playbackSpeed;
+      
+      // Calculate the base end time of the previous step
+      const prevStepsEndTimeBase = cumulativeTime - step.delay;
+      
+      // New delay is the difference
+      const newDelay = Math.max(0, newTimeBase - prevStepsEndTimeBase);
+      
+      handleChange('delay', newDelay);
+      
+      // Format the input back nicely
+      setLocalTimeStr(formatTime(newTimeMs)); 
+    } else {
+      // Revert if invalid
+      if(cumulativeTime !== undefined) {
+        setLocalTimeStr(formatTime(cumulativeTime / playbackSpeed));
       }
+    }
   };
+
+  const startPanelDrag = (clientX: number, clientY: number) => {
+    if (!panelPos) return;
+    setIsDraggingPanel(true);
+    dragStartRef.current = { x: clientX, y: clientY, left: panelPos.left, top: panelPos.top };
+  };
+
+  const handleHeaderMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startPanelDrag(e.clientX, e.clientY);
+  };
+
+  const handleHeaderTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    e.stopPropagation();
+    const touch = e.touches[0];
+    startPanelDrag(touch.clientX, touch.clientY);
+  };
+
+  useEffect(() => {
+    if (!isDraggingPanel) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      let left = dragStartRef.current.left + dx;
+      let top = dragStartRef.current.top + dy;
+      if (typeof window !== 'undefined') {
+        const maxLeft = window.innerWidth - 280;
+        const maxTop = window.innerHeight - 350;
+        left = Math.min(Math.max(20, left), maxLeft);
+        top = Math.min(Math.max(20, top), maxTop);
+      }
+      setPanelPos({ left, top });
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const dx = touch.clientX - dragStartRef.current.x;
+      const dy = touch.clientY - dragStartRef.current.y;
+      let left = dragStartRef.current.left + dx;
+      let top = dragStartRef.current.top + dy;
+      if (typeof window !== 'undefined') {
+        const maxLeft = window.innerWidth - 280;
+        const maxTop = window.innerHeight - 350;
+        left = Math.min(Math.max(20, left), maxLeft);
+        top = Math.min(Math.max(20, top), maxTop);
+      }
+      setPanelPos({ left, top });
+    };
+
+    const handleUp = () => {
+      setIsDraggingPanel(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleUp);
+    };
+  }, [isDraggingPanel]);
+
+  const panelStyle = panelPos
+    ? { left: panelPos.left, top: panelPos.top }
+    : { left: Math.min(window.innerWidth - 280, Math.max(20, step.x + 20)), top: Math.min(window.innerHeight - 350, Math.max(20, step.y)) };
 
   return (
     <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white w-64 p-4 border border-blue-500/30 pointer-events-auto" 
-         style={{ left: Math.min(window.innerWidth - 280, Math.max(20, step.x + 20)), top: Math.min(window.innerHeight - 350, Math.max(20, step.y)) }}>
+         style={panelStyle}>
       
-      <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+      <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2 cursor-move touch-none" onMouseDown={handleHeaderMouseDown} onTouchStart={handleHeaderTouchStart}>
         <h3 className="font-bold text-sm text-blue-400">Edit Point #{index + 1}</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-white">
           <X size={16} />

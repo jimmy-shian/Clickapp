@@ -61,7 +61,7 @@ function App() {
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
   // HUD Rect for Android touch layer alignment
-  const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500 });
+  const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500, isCollapsed: false });
 
   // Helper: sync overlay rect to Android if bridge is available
   const updateAndroidOverlayRect = (x: number, y: number, width: number, height: number) => {
@@ -387,7 +387,7 @@ function App() {
       setMode(AppMode.RECORDING);
       setSelectedStepId(null);
 
-      // 錄製模式：讓觸控 overlay 佈滿整個螢幕，所有點擊都交給 ClickCanvas
+      // 錄製模式：讓觸控 overlay 佔滿整個螢幕，所有點擊都交給 ClickCanvas
       if (typeof window !== 'undefined') {
         const w = window.innerWidth || hudRectRef.current.width;
         const h = window.innerHeight || hudRectRef.current.height;
@@ -580,10 +580,11 @@ function App() {
   const selectedStepIndex = script.steps.findIndex(s => s.id === selectedStepId);
 
   const handleHudRectChange = (x: number, y: number, width: number, height: number, isCollapsed: boolean) => {
-    hudRectRef.current = { x, y, width, height };
+    const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
+    hudRectRef.current = { x, y, width, height, isCollapsed };
 
     // 非錄製狀態下，用 HUD 矩形當作觸控 overlay；錄製時 overlay 由 toggleRecord 控制
-    if (mode !== AppMode.RECORDING) {
+    if (mode !== AppMode.RECORDING && !isEditing) {
       if (isCollapsed) {
         // 縮小成圓點時，給 HUD 周圍多一圈 padding，避免因座標/尺寸誤差導致圓點點不到
         const padding = 16;
@@ -599,6 +600,33 @@ function App() {
       }
     }
   };
+
+  useEffect(() => {
+    const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
+
+    if (mode === AppMode.RECORDING || isEditing) {
+      if (typeof window !== 'undefined') {
+        const w = window.innerWidth || hudRectRef.current.width;
+        const h = window.innerHeight || hudRectRef.current.height;
+        updateAndroidOverlayRect(0, 0, w, h);
+      } else {
+        updateAndroidOverlayRect(0, 0, hudRectRef.current.width, hudRectRef.current.height);
+      }
+    } else {
+      const { x, y, width, height, isCollapsed } = hudRectRef.current;
+      if (isCollapsed) {
+        const padding = 16;
+        const ox = Math.max(0, x - padding);
+        const oy = Math.max(0, y - padding);
+        const ow = width + padding * 2;
+        const oh = height + padding * 2;
+        updateAndroidOverlayRect(ox, oy, ow, oh);
+      } else {
+        const extraBottom = 24;
+        updateAndroidOverlayRect(x, y, width, height + extraBottom);
+      }
+    }
+  }, [mode, selectedStepId]);
 
   return (
     // Updated: Background is transparent and pointer-events passed through
