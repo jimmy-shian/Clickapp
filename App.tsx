@@ -21,19 +21,66 @@ declare global {
     }
 }
 
-const generateNewScript = (): ClickScript => ({
-  metadata: { 
-      id: uuidv4(), 
-      name: 'New Script', 
-      version: '1.0', 
-      loop: false, 
-      loopCount: 0, 
-      createdAt: Date.now(), 
-      updatedAt: Date.now(),
-      duration: 0 
-  },
-  steps: []
-});
+const STORAGE_KEY = 'omniclick_scripts';
+
+const generateUniqueNewScriptName = (): string => {
+  const baseName = 'New Script';
+
+  try {
+      if (typeof window === 'undefined') {
+          return `${baseName} #1`;
+      }
+  } catch {
+      return `${baseName} #1`;
+  }
+
+  try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+          return `${baseName} #1`;
+      }
+
+      const parsed = JSON.parse(raw);
+      const allScripts: any[] = Object.values(parsed);
+
+      const regex = /^New Script(?: #(\d+))?$/;
+      let maxIndex = 0;
+
+      for (const s of allScripts) {
+          const name: string | undefined = s && s.metadata && s.metadata.name;
+          if (!name) continue;
+          const match = name.match(regex);
+          if (!match) continue;
+          const n = match[1] ? parseInt(match[1], 10) : 0;
+          if (!isNaN(n) && n > maxIndex) {
+              maxIndex = n;
+          }
+      }
+
+      const nextIndex = maxIndex + 1;
+      return `${baseName} #${nextIndex}`;
+  } catch (e) {
+      console.error('Failed to generate unique script name', e);
+      return `${baseName} #1`;
+  }
+};
+
+const generateNewScript = (): ClickScript => {
+  const now = Date.now();
+  return {
+    metadata: { 
+	    id: uuidv4(), 
+	    name: generateUniqueNewScriptName(), 
+	    version: '1.0', 
+	    loop: false, 
+	    loopCount: 0, 
+	    createdAt: now, 
+	    updatedAt: now,
+	    duration: 0 
+    },
+    steps: []
+  };
+};
 
 function App() {
   const [mode, setMode] = useState<AppMode>(AppMode.IDLE);
@@ -79,8 +126,6 @@ function App() {
   }, [playbackSpeed]);
 
   // --- Storage Logic ---
-  const STORAGE_KEY = 'omniclick_scripts';
-
   useEffect(() => {
     loadSavedScriptsList();
   }, []);
@@ -181,6 +226,25 @@ function App() {
       setScript(generateNewScript());
       setIsScriptLoaded(true);
       setMode(AppMode.IDLE);
+  };
+
+  const handleClear = () => {
+      try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+              const allScripts = JSON.parse(raw);
+              if (allScripts[script.metadata.id]) {
+                  delete allScripts[script.metadata.id];
+                  localStorage.setItem(STORAGE_KEY, JSON.stringify(allScripts));
+              }
+          }
+      } catch (e) {
+          console.error(e);
+      }
+
+      setScript(prev => ({ ...prev, steps: [] }));
+      setSelectedStepId(null);
+      loadSavedScriptsList();
   };
 
   const handleCloseScript = () => {
@@ -301,7 +365,6 @@ function App() {
   };
 
   // --- Logic: Recording ---
-
   const handleCanvasClick = (x: number, y: number) => {
     if (mode === AppMode.RECORDING) {
       const now = Date.now();
@@ -404,7 +467,6 @@ function App() {
   };
 
   // --- Logic: Playback ---
-
   const stopPlayback = useCallback(() => {
     if (playbackTimeoutRef.current) {
       clearTimeout(playbackTimeoutRef.current);
@@ -660,7 +722,7 @@ function App() {
         
         onRecordToggle={toggleRecord}
         onPlayToggle={togglePlay}
-        onClear={() => setScript(prev => ({ ...prev, steps: [] }))}
+        onClear={handleClear}
         
         onSaveLocal={handleSaveLocal}
         onExport={handleExportFile}
