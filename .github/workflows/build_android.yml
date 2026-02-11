@@ -60,8 +60,14 @@ jobs:
       - name: Build Android APK
         run: cd android && ./gradlew assembleDebug --stacktrace
 
+      - name: Rename APK to omniclick-1.0.1.apk
+        run: |
+          APK_PATH="$(find android/app/build/outputs/apk -type f -name "*debug*.apk" | head -n 1)"
+          echo "Found APK: $APK_PATH"
+          cp "$APK_PATH" "android/app/build/outputs/apk/omniclick-1.0.1.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: omniclick-1.0.1
-          path: android/app/build/outputs/apk/debug/omniclick-1.0.1.apk
+          path: android/app/build/outputs/apk/omniclick-1.0.1.apk
