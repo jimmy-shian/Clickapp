@@ -37,6 +37,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     private static OmniClickAccessibilityService instance;
     private WindowManager windowManager;
     private WebView webView;
+    private WindowManager.LayoutParams webViewLayoutParams;
     private WebViewAssetLoader assetLoader;
     private TouchOverlayView touchView;
     private WindowManager.LayoutParams touchLayoutParams;
@@ -177,7 +178,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
         int type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
 
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+        webViewLayoutParams = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 type,
@@ -188,7 +189,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 PixelFormat.TRANSLUCENT
         );
 
-        windowManager.addView(webView, params);
+        windowManager.addView(webView, webViewLayoutParams);
     }
 
     private void createTouchOverlay() {
@@ -248,10 +249,11 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
         @Override
         public boolean onTouchEvent(MotionEvent event) {
+            float rawX = event.getRawX();
+            float rawY = event.getRawY();
+
             if (webView != null) {
                 MotionEvent copy = MotionEvent.obtain(event);
-                float rawX = event.getRawX();
-                float rawY = event.getRawY();
                 int[] loc = new int[2];
                 webView.getLocationOnScreen(loc);
                 float localX = rawX - loc[0];
@@ -259,6 +261,12 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 copy.setLocation(localX, localY);
                 webView.dispatchTouchEvent(copy);
                 copy.recycle();
+            }
+
+            // 錄製模式下，在手指抬起時也對底層 App 發送一個原生 tap，
+            // 讓使用者在錄製時能同時操作底下的應用程式
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                performTapGesture(rawX, rawY);
             }
 
             return true;
@@ -346,6 +354,41 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             }
         }
 
+        /**
+         * 當前端 input 取得焦點時呼叫，移除 FLAG_NOT_FOCUSABLE 讓軟鍵盤可以彈出。
+         */
+        @JavascriptInterface
+        public void requestInputFocus() {
+            Log.d(TAG, "requestInputFocus");
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (webView == null || windowManager == null || webViewLayoutParams == null) return;
+                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                try {
+                    windowManager.updateViewLayout(webView, webViewLayoutParams);
+                } catch (Exception e) {
+                    Log.e(TAG, "requestInputFocus updateViewLayout failed", e);
+                }
+                webView.requestFocus();
+            });
+        }
+
+        /**
+         * 當前端 input 失去焦點時呼叫，加回 FLAG_NOT_FOCUSABLE 讓觸控可以穿透。
+         */
+        @JavascriptInterface
+        public void clearInputFocus() {
+            Log.d(TAG, "clearInputFocus");
+            new Handler(Looper.getMainLooper()).post(() -> {
+                if (webView == null || windowManager == null || webViewLayoutParams == null) return;
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                try {
+                    windowManager.updateViewLayout(webView, webViewLayoutParams);
+                } catch (Exception e) {
+                    Log.e(TAG, "clearInputFocus updateViewLayout failed", e);
+                }
+            });
+        }
+
         @JavascriptInterface
         public void close() {
             Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -366,8 +409,6 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 }
 
                 // 請求系統停用並關閉此無障礙服務，等同於在設定中將服務關閉
-                // 這樣下次使用者再打開 OmniClick App 時，MainActivity 會偵測到服務未啟用，
-                // 直接帶去無障礙設定重新開啟，避免 service 處於『已啟用但未執行』的中間狀態。
                 disableSelf();
             });
         }

@@ -24,16 +24,16 @@ const parseFormattedTime = (timeStr: string): number | null => {
   // Expected format MM:SS.mmm
   const parts = timeStr.split(':');
   if (parts.length !== 2) return null;
-  
+
   const minutes = parseInt(parts[0], 10);
   const secondsParts = parts[1].split('.');
-  
+
   if (secondsParts.length !== 2) return null;
   const seconds = parseInt(secondsParts[0], 10);
   const ms = parseInt(secondsParts[1], 10);
-  
+
   if (isNaN(minutes) || isNaN(seconds) || isNaN(ms)) return null;
-  
+
   return (minutes * 60000) + (seconds * 1000) + ms;
 };
 
@@ -56,10 +56,13 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
       setPanelPos({ left: step.x + 20, top: step.y });
       return;
     }
-    const maxLeft = window.innerWidth - 280;
-    const maxTop = window.innerHeight - 350;
-    const left = Math.min(maxLeft, Math.max(20, step.x + 20));
-    const top = Math.min(maxTop, Math.max(20, step.y));
+    // 計算面板可用的最大寬度/高度，確保不超出畫面
+    const panelW = Math.min(256, window.innerWidth - 40); // w-64 = 256px, 但不超過螢幕
+    const panelH = Math.min(350, window.innerHeight - 40);
+    const maxLeft = Math.max(0, window.innerWidth - panelW);
+    const maxTop = Math.max(0, window.innerHeight - panelH);
+    const left = Math.min(maxLeft, Math.max(10, step.x + 20));
+    const top = Math.min(maxTop, Math.max(10, step.y));
     setPanelPos({ left, top });
   }, [step.id]);
 
@@ -68,25 +71,27 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
   };
 
   const handleTimeBlur = () => {
+    // 釋放鍵盤焦點
+    window.Android?.clearInputFocus?.();
     // Calculate new delay based on edited time
     const newTimeMs = parseFormattedTime(localTimeStr);
     if (newTimeMs !== null && cumulativeTime !== undefined) {
       // Reverse Scale: Convert user input time back to base time
       const newTimeBase = newTimeMs * playbackSpeed;
-      
+
       // Calculate the base end time of the previous step
       const prevStepsEndTimeBase = cumulativeTime - step.delay;
-      
+
       // New delay is the difference
       const newDelay = Math.max(0, newTimeBase - prevStepsEndTimeBase);
-      
+
       handleChange('delay', newDelay);
-      
+
       // Format the input back nicely
-      setLocalTimeStr(formatTime(newTimeMs)); 
+      setLocalTimeStr(formatTime(newTimeMs));
     } else {
       // Revert if invalid
-      if(cumulativeTime !== undefined) {
+      if (cumulativeTime !== undefined) {
         setLocalTimeStr(formatTime(cumulativeTime / playbackSpeed));
       }
     }
@@ -167,12 +172,16 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
 
   const panelStyle = panelPos
     ? { left: panelPos.left, top: panelPos.top }
-    : { left: Math.min(window.innerWidth - 280, Math.max(20, step.x + 20)), top: Math.min(window.innerHeight - 350, Math.max(20, step.y)) };
+    : { left: Math.min((typeof window !== 'undefined' ? window.innerWidth : 400) - 280, Math.max(10, step.x + 20)), top: Math.min((typeof window !== 'undefined' ? window.innerHeight : 600) - 350, Math.max(10, step.y)) };
+
+  // 面板寬度 & 最大高度隨螢幕縮放
+  const panelWidth = typeof window !== 'undefined' ? Math.min(256, window.innerWidth - 20) : 256;
+  const panelMaxHeight = typeof window !== 'undefined' ? Math.min(400, window.innerHeight - 40) : 400;
 
   return (
-    <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white w-64 p-4 border border-blue-500/30 pointer-events-auto" 
-         style={panelStyle}>
-      
+    <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white p-4 border border-blue-500/30 pointer-events-auto overflow-y-auto"
+      style={{ ...panelStyle, width: panelWidth, maxHeight: panelMaxHeight }}>
+
       <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2 cursor-move touch-none" onMouseDown={handleHeaderMouseDown} onTouchStart={handleHeaderTouchStart}>
         <h3 className="font-bold text-sm text-blue-400">Edit Point #{index + 1}</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -183,39 +192,44 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
       <div className="flex flex-col gap-3">
         {/* Trigger Time (Editable) */}
         <div className="bg-blue-500/10 border border-blue-500/20 rounded p-2 text-center relative group">
-            <label className="text-[10px] text-blue-300 uppercase block mb-1">Trigger Time {playbackSpeed !== 1 && `(${playbackSpeed}x)`}</label>
-            <input
-                type="text"
-                value={localTimeStr}
-                onChange={(e) => setLocalTimeStr(e.target.value)}
-                onBlur={handleTimeBlur}
-                className="w-full bg-transparent text-center font-mono text-xl font-bold text-white tracking-widest outline-none border-b border-transparent focus:border-blue-500 transition-colors"
-                placeholder="00:00.000"
-            />
-            <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-50 text-[10px] text-blue-300 pointer-events-none">
-                EDIT
-            </div>
+          <label className="text-[10px] text-blue-300 uppercase block mb-1">Trigger Time {playbackSpeed !== 1 && `(${playbackSpeed}x)`}</label>
+          <input
+            type="text"
+            value={localTimeStr}
+            onChange={(e) => setLocalTimeStr(e.target.value)}
+            onBlur={handleTimeBlur}
+            onFocus={() => window.Android?.requestInputFocus?.()}
+            className="w-full bg-transparent text-center font-mono text-xl font-bold text-white tracking-widest outline-none border-b border-transparent focus:border-blue-500 transition-colors"
+            placeholder="00:00.000"
+          />
+          <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-50 text-[10px] text-blue-300 pointer-events-none">
+            EDIT
+          </div>
         </div>
 
         {/* Position */}
         <div className="space-y-1">
-          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><MapPin size={10}/> Position</label>
+          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><MapPin size={10} /> Position</label>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <span className="text-xs text-gray-500 mr-1">X</span>
-              <input 
-                type="number" 
-                value={Math.round(step.x)} 
+              <input
+                type="number"
+                value={Math.round(step.x)}
                 onChange={(e) => handleChange('x', Number(e.target.value))}
+                onFocus={() => window.Android?.requestInputFocus?.()}
+                onBlur={() => window.Android?.clearInputFocus?.()}
                 className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
             <div>
               <span className="text-xs text-gray-500 mr-1">Y</span>
-              <input 
-                type="number" 
-                value={Math.round(step.y)} 
+              <input
+                type="number"
+                value={Math.round(step.y)}
                 onChange={(e) => handleChange('y', Number(e.target.value))}
+                onFocus={() => window.Android?.requestInputFocus?.()}
+                onBlur={() => window.Android?.clearInputFocus?.()}
                 className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
@@ -224,50 +238,56 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
 
         {/* Repeats */}
         <div className="space-y-1">
-             <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Repeat size={10}/> Repeats</label>
-             <div className="flex items-center gap-2">
-                <input 
-                    type="number" 
-                    min="1"
-                    value={step.repeat} 
-                    onChange={(e) => handleChange('repeat', Math.max(1, Number(e.target.value)))}
-                    className="flex-1 bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
-                />
-                <span className="text-xs text-gray-500">times</span>
-             </div>
+          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Repeat size={10} /> Repeats</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              value={step.repeat}
+              onChange={(e) => handleChange('repeat', Math.max(1, Number(e.target.value)))}
+              onFocus={() => window.Android?.requestInputFocus?.()}
+              onBlur={() => window.Android?.clearInputFocus?.()}
+              className="flex-1 bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
+            />
+            <span className="text-xs text-gray-500">times</span>
+          </div>
         </div>
 
-         {/* Repeat Interval */}
-         {step.repeat > 1 && (
-            <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
-                <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10}/> Repeat Interval (ms)</label>
-                <input 
-                    type="number" 
-                    min="0"
-                    value={step.repeatInterval} 
-                    onChange={(e) => handleChange('repeatInterval', Math.max(0, Number(e.target.value)))}
-                    className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
-                />
-            </div>
-         )}
+        {/* Repeat Interval */}
+        {step.repeat > 1 && (
+          <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+            <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10} /> Repeat Interval (ms)</label>
+            <input
+              type="number"
+              min="0"
+              value={step.repeatInterval}
+              onChange={(e) => handleChange('repeatInterval', Math.max(0, Number(e.target.value)))}
+              onFocus={() => window.Android?.requestInputFocus?.()}
+              onBlur={() => window.Android?.clearInputFocus?.()}
+              className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
+            />
+          </div>
+        )}
 
         {/* Post-Action Delay */}
         <div className="space-y-1">
-             <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10}/> Delay from previous (ms)</label>
-             <input 
-                type="number" 
-                min="0"
-                value={step.delay} 
-                onChange={(e) => handleChange('delay', Math.max(0, Number(e.target.value)))}
-                className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
-             />
+          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10} /> Delay from previous (ms)</label>
+          <input
+            type="number"
+            min="0"
+            value={step.delay}
+            onChange={(e) => handleChange('delay', Math.max(0, Number(e.target.value)))}
+            onFocus={() => window.Android?.requestInputFocus?.()}
+            onBlur={() => window.Android?.clearInputFocus?.()}
+            className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
+          />
         </div>
 
-        <button 
-            onClick={onDelete}
-            className="mt-2 w-full flex items-center justify-center gap-2 py-1.5 bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded border border-red-500/20 transition-colors text-xs"
+        <button
+          onClick={onDelete}
+          className="mt-2 w-full flex items-center justify-center gap-2 py-1.5 bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded border border-red-500/20 transition-colors text-xs"
         >
-            <X size={12} /> Delete Point
+          <X size={12} /> Delete Point
         </button>
       </div>
     </div>
