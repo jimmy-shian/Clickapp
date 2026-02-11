@@ -57,12 +57,23 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
-      - name: Build Android APK
-        run: cd android && ./gradlew assembleDebug --stacktrace
-
-      - name: Rename APK to omniclick-1.0.1.apk
+      # ✅ 從 GitHub Secret 解碼 keystore
+      - name: Decode Keystore
         run: |
-          APK_PATH="$(find android/app/build/outputs/apk -type f -name "*debug*.apk" | head -n 1)"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+
+      # ✅ 建置已簽章的 Release APK
+      - name: Build Signed Release APK
+        env:
+          KEYSTORE_FILE: release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: cd android && ./gradlew assembleRelease --stacktrace
+
+      - name: Rename APK
+        run: |
+          APK_PATH="$(find android/app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)"
           echo "Found APK: $APK_PATH"
           cp "$APK_PATH" "android/app/build/outputs/apk/omniclick-1.0.1.apk"
 
