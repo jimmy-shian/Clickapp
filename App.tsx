@@ -434,16 +434,28 @@ function App() {
         const tail = Math.max(0, now - lastActionTimeRef.current);
         const totalDuration = stepsDuration + tail;
 
-        return {
+        const finalScript = {
           ...prev,
           metadata: {
             ...prev.metadata,
             duration: totalDuration
           }
         };
+
+        // 錄製結束時自動儲存，使腳本可供後續編輯/播放
+        try {
+          saveScriptToStorage(finalScript);
+        } catch (e) {
+          console.error('Auto-save after recording failed', e);
+        }
+
+        return finalScript;
       });
       setMode(AppMode.IDLE);
       setSessionStartTime(null);
+
+      // 刷新已儲存腳本列表
+      loadSavedScriptsList();
 
       // 通知 Android 停止錄製穿透 tap
       if (window.Android?.setRecordingMode) {
