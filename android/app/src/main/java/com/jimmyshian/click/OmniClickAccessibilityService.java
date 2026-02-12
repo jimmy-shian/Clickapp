@@ -277,17 +277,10 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 copy.recycle();
             }
 
-            // 錄製模式下，在手指抬起時也對底層 App 發送一個原生 tap
+            // 錄製模式下，僅記錄座標到腳本（由 WebView 的 ClickCanvas 處理），
+            // 不對底層 App 發送原生 tap，避免雙重操作。
             if (isRecordingMode && event.getAction() == MotionEvent.ACTION_UP) {
-                // 排除 HUD 區域：如果 touch 在 HUD 矩形內，不穿透
-                if (hudRectPxW > 0 && hudRectPxH > 0
-                        && rawX >= hudRectPxX && rawX <= hudRectPxX + hudRectPxW
-                        && rawY >= hudRectPxY && rawY <= hudRectPxY + hudRectPxH) {
-                    Log.d(TAG, "onTouchEvent: inside HUD rect, skip native tap");
-                } else {
-                    Log.d(TAG, "onTouchEvent: recording tap at rawXY=(" + rawX + "," + rawY + ")");
-                    performTapGesture(rawX, rawY);
-                }
+                Log.d(TAG, "onTouchEvent: recording mode, only capture (no native tap) at rawXY=(" + rawX + "," + rawY + ")");
             }
 
             return true;
@@ -376,7 +369,8 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         }
 
         /**
-         * 當前端 input 取得焦點時呼叫，移除 FLAG_NOT_FOCUSABLE 讓軟鍵盤可以彈出。
+         * 當前端 input 取得焦點時呼叫，移除 FLAG_NOT_FOCUSABLE 與 FLAG_NOT_TOUCHABLE
+         * 讓軟鍵盤可以彈出，且 WebView 可直接接收觸控事件（避免被 touch overlay 攔截）。
          */
         @JavascriptInterface
         public void requestInputFocus() {
@@ -389,6 +383,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 }
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
                 webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -401,6 +396,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         /**
          * 當前端 input 失去焦點時呼叫。使用 300ms debounce 避免誤關鍵盤：
          * 如使用者只是誤觸 overlay 或切換 input，requestInputFocus 會取消待執行的 clear。
+         * 同時恢復 FLAG_NOT_TOUCHABLE，讓 touch overlay 重新接管觸控事件。
          */
         @JavascriptInterface
         public void clearInputFocus() {
@@ -409,6 +405,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 pendingClearFocusRunnable = null;
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
                 webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -469,30 +466,42 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             return;
         }
 
-        Path path = new Path();
-        path.moveTo(x, y);
-        path.lineTo(x, y);
+        // 確保在主執行緒執行 dispatchGesture (提升穩定性，避免部分裝置線程問題)
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                Path path = new Path();
+                path.moveTo(x, y);
+                // 使用 lineTo 確保路徑非空，雖然原地不動
+                path.lineTo(x, y);
 
-        GestureDescription.StrokeDescription stroke =
-                new GestureDescription.StrokeDescription(path, 0, 50);
+                // 增加持續時間至 100ms (50ms 有時會被視為誤觸或無效)
+                GestureDescription.StrokeDescription stroke =
+                        new GestureDescription.StrokeDescription(path, 0, 100);
 
-        GestureDescription.Builder builder = new GestureDescription.Builder();
-        builder.addStroke(stroke);
+                GestureDescription.Builder builder = new GestureDescription.Builder();
+                builder.addStroke(stroke);
 
-        final float fx = x;
-        final float fy = y;
+                Log.d(TAG, "Dispatching tap gesture at (" + x + ", " + y + ")");
 
-        dispatchGesture(builder.build(), new GestureResultCallback() {
-            @Override
-            public void onCompleted(GestureDescription gestureDescription) {
-                Log.d(TAG, "Gesture completed at (" + fx + ", " + fy + ")");
+                boolean displayed = dispatchGesture(builder.build(), new GestureResultCallback() {
+                    @Override
+                    public void onCompleted(GestureDescription gestureDescription) {
+                        Log.d(TAG, "Gesture completed at (" + x + ", " + y + ")");
+                    }
+
+                    @Override
+                    public void onCancelled(GestureDescription gestureDescription) {
+                        Log.e(TAG, "Gesture cancelled at (" + x + ", " + y + ")");
+                    }
+                }, null);
+
+                if (!displayed) {
+                     Log.e(TAG, "dispatchGesture passed but returned false (system rejected)");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Exception in performTapGesture", e);
             }
-
-            @Override
-            public void onCancelled(GestureDescription gestureDescription) {
-                Log.e(TAG, "Gesture cancelled at (" + fx + ", " + fy + ")");
-            }
-        }, null);
+        });
     }
 
     private void updateTouchOverlayLayout() {
