@@ -373,8 +373,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     return (
       <div
         className={`fixed z-50 rounded-full shadow-2xl flex items-center justify-center cursor-pointer transition-transform active:scale-95 hover:scale-105 pointer-events-auto ${mode === AppMode.RECORDING ? 'bg-red-500 animate-pulse shadow-[0_0_20px_rgba(239,68,68,0.6)]' :
-            mode === AppMode.PLAYING ? 'bg-amber-500 animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.6)]' :
-              'bg-gray-700 glass-panel'
+          mode === AppMode.PLAYING ? 'bg-amber-500 animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.6)]' :
+            'bg-gray-700 glass-panel'
           }`}
         style={{ left: position.x, top: position.y, width: '48px', height: '48px' }}
         onMouseDown={handleMouseDown}
@@ -600,7 +600,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               onChange={(e) => setScriptName(e.target.value)}
               onFocus={() => window.Android?.requestInputFocus?.()}
               onBlur={() => window.Android?.clearInputFocus?.()}
-              className="bg-transparent border-b border-white/10 focus:border-blue-500 text-base font-bold text-white px-1 py-1 mb-4 outline-none w-full"
+              className="bg-transparent border-b border-white/10 focus:border-blue-500 text-base font-bold text-white px-1 py-1 mb-4 outline-none w-full select-text"
               placeholder="Script Name"
             />
 
@@ -657,8 +657,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   onRecordToggle(); // 執行原本的錄影動作
                 }}
                 className={`flex items-center justify-center gap-2 px-1 py-2 rounded-lg font-medium transition-all h-max ${mode === AppMode.RECORDING
-                    ? 'bg-red-500/80 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]'
-                    : 'bg-white/10 hover:bg-white/20 text-gray-200'
+                  ? 'bg-red-500/80 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)]'
+                  : 'bg-white/10 hover:bg-white/20 text-gray-200'
                   }`}
               >
                 {mode === AppMode.RECORDING ? <Square size={16} fill="currentColor" /> : <Circle size={16} fill="currentColor" className="text-red-500" />}
@@ -675,8 +675,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 }}
                 disabled={script.steps.length === 0 || mode === AppMode.RECORDING}
                 className={`flex items-center justify-center gap-2 px-1 py-2 rounded-lg font-medium transition-all h-max ${mode === AppMode.PLAYING
-                    ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.5)]'
-                    : 'bg-white/10 hover:bg-white/20 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed'
+                  ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.5)]'
+                  : 'bg-white/10 hover:bg-white/20 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed'
                   }`}
               >
                 {mode === AppMode.PLAYING ? <Square size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
@@ -722,8 +722,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                       key={step.id}
                       onClick={() => onSelectStep(selectedStepId === step.id ? null : step.id)}
                       className={`relative p-3 cursor-pointer rounded mb-1 transition-all border border-transparent ${selectedStepId === step.id
-                          ? 'bg-blue-600 border-blue-400 text-white shadow-md translate-x-1'
-                          : 'hover:bg-white/5 border-white/5 text-gray-300'
+                        ? 'bg-blue-600 border-blue-400 text-white shadow-md translate-x-1'
+                        : 'hover:bg-white/5 border-white/5 text-gray-300'
                         }`}
                     >
                       {/* GRID LAYOUT FOR ALIGNMENT */}

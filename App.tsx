@@ -18,6 +18,7 @@ declare global {
       saveFile?: (name: string, content: string) => void;
       requestInputFocus?: () => void;
       clearInputFocus?: () => void;
+      setRecordingMode?: (recording: boolean) => void;
     };
     __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
   }
@@ -444,11 +445,20 @@ function App() {
       setMode(AppMode.IDLE);
       setSessionStartTime(null);
 
+      // 通知 Android 停止錄製穿透 tap
+      if (window.Android?.setRecordingMode) {
+        window.Android.setRecordingMode(false);
+      }
+
       // 錄製結束：還原成只覆蓋 HUD 的觸控區
       const r = hudRectRef.current;
       updateAndroidOverlayRect(r.x, r.y, r.width, r.height);
     } else {
       // START RECORDING
+      // 通知 Android 開始錄製穿透 tap
+      if (window.Android?.setRecordingMode) {
+        window.Android.setRecordingMode(true);
+      }
       setMode(AppMode.RECORDING);
       setSelectedStepId(null);
 

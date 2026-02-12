@@ -42,6 +42,11 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     private TouchOverlayView touchView;
     private WindowManager.LayoutParams touchLayoutParams;
 
+    // 錄製模式旗標（由 JS bridge 控制），只在錄製時才需要穿透 tap
+    private volatile boolean isRecordingMode = false;
+    // 防止自己的 gesture 回饋再觸發 onTouchEvent → performTapGesture 無限迴圈
+    private volatile boolean isPerformingTap = false;
+
     // HUD / overlay 矩形（以 JS 回報的 canvas 座標系，單位為 CSS px）
     private float overlayX = 0f;
     private float overlayY = 0f;
@@ -265,7 +270,10 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
             // 錄製模式下，在手指抬起時也對底層 App 發送一個原生 tap，
             // 讓使用者在錄製時能同時操作底下的應用程式
-            if (event.getAction() == MotionEvent.ACTION_UP) {
+            // 需要同時檢查 isRecordingMode（避免非錄製時誤觸）以及
+            // isPerformingTap（避免自身 gesture 回饋產生無限迴圈）
+            if (isRecordingMode && !isPerformingTap
+                    && event.getAction() == MotionEvent.ACTION_UP) {
                 performTapGesture(rawX, rawY);
             }
 
@@ -389,6 +397,15 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             });
         }
 
+        /**
+         * 由前端在開始/結束錄製時呼叫，控制是否允許 touch overlay 穿透 tap。
+         */
+        @JavascriptInterface
+        public void setRecordingMode(boolean recording) {
+            isRecordingMode = recording;
+            Log.d(TAG, "setRecordingMode: " + recording);
+        }
+
         @JavascriptInterface
         public void close() {
             Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -419,6 +436,8 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             return;
         }
 
+        isPerformingTap = true;
+
         Path path = new Path();
         path.moveTo(x, y);
         path.lineTo(x, y);
@@ -435,11 +454,13 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         dispatchGesture(builder.build(), new GestureResultCallback() {
             @Override
             public void onCompleted(GestureDescription gestureDescription) {
+                isPerformingTap = false;
                 Log.d(TAG, "Gesture completed at (" + fx + ", " + fy + ")");
             }
 
             @Override
             public void onCancelled(GestureDescription gestureDescription) {
+                isPerformingTap = false;
                 Log.e(TAG, "Gesture cancelled at (" + fx + ", " + fy + ")");
             }
         }, null);
