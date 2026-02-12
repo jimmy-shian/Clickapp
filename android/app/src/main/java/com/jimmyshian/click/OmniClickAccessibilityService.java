@@ -45,6 +45,13 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     // 錄製模式旗標（由 JS bridge 控制），只在錄製時才需要穿透 tap
     private volatile boolean isRecordingMode = false;
 
+    // 錄製時排除 HUD 區域的原生 tap（避免點 HUD 也點到底層 App）
+    // 座標為螢幕 px
+    private float hudRectPxX = -1f;
+    private float hudRectPxY = -1f;
+    private float hudRectPxW = 0f;
+    private float hudRectPxH = 0f;
+
     // clearInputFocus debounce 用的 Handler 與 Runnable
     private final Handler clearFocusHandler = new Handler(Looper.getMainLooper());
     private Runnable pendingClearFocusRunnable = null;
@@ -270,10 +277,17 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 copy.recycle();
             }
 
-            // 錄製模式下，在手指抬起時也對底層 App 發送一個原生 tap，
-            // 讓使用者在錄製時能同時操作底下的應用程式
+            // 錄製模式下，在手指抬起時也對底層 App 發送一個原生 tap
             if (isRecordingMode && event.getAction() == MotionEvent.ACTION_UP) {
-                performTapGesture(rawX, rawY);
+                // 排除 HUD 區域：如果 touch 在 HUD 矩形內，不穿透
+                if (hudRectPxW > 0 && hudRectPxH > 0
+                        && rawX >= hudRectPxX && rawX <= hudRectPxX + hudRectPxW
+                        && rawY >= hudRectPxY && rawY <= hudRectPxY + hudRectPxH) {
+                    Log.d(TAG, "onTouchEvent: inside HUD rect, skip native tap");
+                } else {
+                    Log.d(TAG, "onTouchEvent: recording tap at rawXY=(" + rawX + "," + rawY + ")");
+                    performTapGesture(rawX, rawY);
+                }
             }
 
             return true;
@@ -410,7 +424,19 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         @JavascriptInterface
         public void setRecordingMode(boolean recording) {
             isRecordingMode = recording;
-            Log.d(TAG, "setRecordingMode: " + recording);
+            Log.d(TAG, "setRecordingMode: " + recording + " [thread=" + Thread.currentThread().getName() + "]");
+        }
+
+        /**
+         * 由前端回報 HUD 的螢幕 px 矩形，錄製時排除此區域不穿透 tap。
+         */
+        @JavascriptInterface
+        public void setHudRect(float x, float y, float width, float height) {
+            hudRectPxX = x;
+            hudRectPxY = y;
+            hudRectPxW = width;
+            hudRectPxH = height;
+            Log.d(TAG, "setHudRect: (" + x + "," + y + "," + width + "," + height + ")");
         }
 
         @JavascriptInterface

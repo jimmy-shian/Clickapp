@@ -19,6 +19,7 @@ declare global {
       requestInputFocus?: () => void;
       clearInputFocus?: () => void;
       setRecordingMode?: (recording: boolean) => void;
+      setHudRect?: (x: number, y: number, width: number, height: number) => void;
     };
     __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
   }
@@ -372,45 +373,36 @@ function App() {
     if (mode === AppMode.RECORDING) {
       const now = Date.now();
 
-      // Calculate delay from the PREVIOUS action (or start time if first step)
-      const delay = Math.max(0, now - lastActionTimeRef.current);
-      let added = false;
-
       setScript(prev => {
         const last = prev.steps[prev.steps.length - 1];
 
-        // 去重：如果與上一個 step 距離很近且時間差極短，視為同一次點擊，不再新增 step
+        // 計算與上一次動作的間隔
+        const delay = Math.max(0, now - lastActionTimeRef.current);
+
+        // 去重：如果與上一個 step 距離很近且時間差極短，視為同一次點擊
         if (last) {
           const dx = last.x - x;
           const dy = last.y - y;
-          const distSq = dx * dx + dy * dy;
-          const isNear = distSq < (12 * 12); // 半徑 12px 以內
-          const isVerySoon = delay < 150;    // 150ms 內的連續事件
-
-          if (isNear && isVerySoon) {
-            // 忽略這個點擊，不改變腳本
+          if ((dx * dx + dy * dy) < 144 && delay < 150) {
             return prev;
           }
         }
+
+        // ✅ 在 updater 內同步更新 ref，確保與新增 step 一致
+        lastActionTimeRef.current = now;
 
         const newStep: ClickStep = {
           id: uuidv4(),
           x,
           y,
-          delay: delay, // Store delay BEFORE this step
+          delay,
           type: 'click',
           repeat: 1,
           repeatInterval: 100
         };
 
-        added = true;
         return { ...prev, steps: [...prev.steps, newStep] };
       });
-
-      // 只有在實際新增 step 時才更新 lastActionTimeRef
-      if (added) {
-        lastActionTimeRef.current = now;
-      }
     } else if (mode === AppMode.IDLE) {
       setSelectedStepId(null);
     }
@@ -471,6 +463,21 @@ function App() {
       if (window.Android?.setRecordingMode) {
         window.Android.setRecordingMode(true);
       }
+
+      // 強制同步 HUD rect → Android（screen px），確保錄製啟動時排除區域立即有效
+      if (window.Android?.setHudRect) {
+        const dpr = window.devicePixelRatio || 1;
+        const r = hudRectRef.current;
+        // 展開時加 extraBottom，與 handleHudRectChange 一致
+        const extraH = r.isCollapsed ? 0 : 24;
+        window.Android.setHudRect(
+          r.x * dpr,
+          r.y * dpr,
+          r.width * dpr,
+          (r.height + extraH) * dpr
+        );
+      }
+
       setMode(AppMode.RECORDING);
       setSelectedStepId(null);
 
@@ -538,8 +545,16 @@ function App() {
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
 
-      // --- PERFORM NATIVE CLICK ---
-      if (window.Android && window.Android.performClick) {
+      // --- PERFORM NATIVE CLICK (gesture dispatch) ---
+      // tap 接受螢幕 px 座標，直接 dispatchGesture（最穩定）
+      // performClick 為相容層（Java 端做 CSS→screen px 轉換）
+      const dpr = window.devicePixelRatio || 1;
+      const screenX = step.x * dpr;
+      const screenY = step.y * dpr;
+
+      if (window.Android?.tap) {
+        window.Android.tap(screenX, screenY);
+      } else if (window.Android?.performClick) {
         window.Android.performClick(step.x, step.y);
       }
       // ----------------------------
@@ -669,10 +684,17 @@ function App() {
     const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
     hudRectRef.current = { x, y, width, height, isCollapsed };
 
+    // 回報 HUD 矩形給 Android，錄製時排除此區域不穿透 tap
+    // 轉換 CSS px → 螢幕 px
+    if (window.Android?.setHudRect) {
+      const dpr = window.devicePixelRatio || 1;
+      window.Android.setHudRect(x * dpr, y * dpr, width * dpr, height * dpr);
+    }
+
     // 非錄製狀態下，用 HUD 矩形當作觸控 overlay；錄製時 overlay 由 toggleRecord 控制
     if (mode !== AppMode.RECORDING && !isEditing) {
       if (isCollapsed) {
-        // 縮小成圓點時，給 HUD 周圍多一圈 padding，避免因座標/尺寸誤差導致圓點點不到
+        // 縮小成園點時，給 HUD 周圍多一圈 padding，避免因座標/尺寸誤差導致圓點點不到
         const padding = 16;
         const ox = Math.max(0, x - padding);
         const oy = Math.max(0, y - padding);

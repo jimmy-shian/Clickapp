@@ -6,7 +6,7 @@ interface ClickCanvasProps {
   steps: ClickStep[];
   onCanvasClick: (x: number, y: number) => void;
   onStepClick: (id: string) => void;
-  onStepUpdate: (updatedStep: ClickStep) => void; 
+  onStepUpdate: (updatedStep: ClickStep) => void;
   selectedStepId: string | null;
 }
 
@@ -85,17 +85,11 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   }, [draggingStepId, mode, steps, onStepUpdate]);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Only capture clicks on canvas if recording
-    if (isRecording) {
-      const now = Date.now();
-      // Ignore synthetic click that follows a touch event to avoid double-adding steps
-      if (now - lastTouchTimeRef.current < 400) return;
-
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      onCanvasClick(x, y);
-    }
+    // On Android overlay, touch events are dispatched from the native TouchOverlayView.
+    // The WebView then generates BOTH a touchstart AND a synthetic click for the same tap.
+    // We use onTouchStart as the canonical recording handler, so skip onClick entirely
+    // during recording to prevent duplicate steps.
+    if (isRecording) return;
   };
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
@@ -138,9 +132,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
 
   return (
     <div
-      className={`relative w-full h-screen overflow-hidden ${
-        isRecording || isEditing ? 'pointer-events-auto' : 'pointer-events-none'
-      } ${isRecording ? 'cursor-crosshair' : ''}`}
+      className={`relative w-full h-screen overflow-hidden ${isRecording || isEditing ? 'pointer-events-auto' : 'pointer-events-none'
+        } ${isRecording ? 'cursor-crosshair' : ''}`}
       style={{ backgroundColor: 'transparent' }}
       onClick={handleClick}
       onTouchStart={handleTouchStart}
