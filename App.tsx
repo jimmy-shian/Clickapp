@@ -13,6 +13,7 @@ declare global {
       close?: () => void;
       updateOverlayRect?: (x: number, y: number, width: number, height: number) => void;
       tap?: (x: number, y: number) => void;
+      swipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
       reportPos?: (x: number, y: number, width: number, height: number) => void;
       openFilePicker?: (slot: string) => void;
       saveFile?: (name: string, content: string) => void;
@@ -408,6 +409,32 @@ function App() {
     }
   };
 
+  const handleCanvasSwipe = (x: number, y: number, endX: number, endY: number, swipeDuration: number) => {
+    if (mode === AppMode.RECORDING) {
+      const now = Date.now();
+
+      setScript(prev => {
+        const delay = Math.max(0, now - swipeDuration - lastActionTimeRef.current);
+        lastActionTimeRef.current = now;
+
+        const newStep: ClickStep = {
+          id: uuidv4(),
+          x,
+          y,
+          endX,
+          endY,
+          swipeDuration,
+          delay,
+          type: 'swipe',
+          repeat: 1,
+          repeatInterval: 100
+        };
+
+        return { ...prev, steps: [...prev.steps, newStep] };
+      });
+    }
+  };
+
   const toggleRecord = () => {
     if (mode === AppMode.RECORDING) {
       // STOP RECORDING
@@ -545,17 +572,30 @@ function App() {
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
 
-      // --- PERFORM NATIVE CLICK (gesture dispatch) ---
-      // tap 接受螢幕 px 座標，直接 dispatchGesture（最穩定）
-      // performClick 為相容層（Java 端做 CSS→screen px 轉換）
+      // --- PERFORM NATIVE GESTURE (gesture dispatch) ---
       const dpr = window.devicePixelRatio || 1;
-      const screenX = step.x * dpr;
-      const screenY = step.y * dpr;
 
-      if (window.Android?.tap) {
-        window.Android.tap(screenX, screenY);
-      } else if (window.Android?.performClick) {
-        window.Android.performClick(step.x, step.y);
+      if (step.type === 'swipe' && step.endX !== undefined && step.endY !== undefined) {
+        // Swipe gesture
+        const screenX1 = step.x * dpr;
+        const screenY1 = step.y * dpr;
+        const screenX2 = step.endX * dpr;
+        const screenY2 = step.endY * dpr;
+        const swipeDur = step.swipeDuration ?? 300;
+
+        if (window.Android?.swipe) {
+          window.Android.swipe(screenX1, screenY1, screenX2, screenY2, swipeDur);
+        }
+      } else {
+        // Tap gesture
+        const screenX = step.x * dpr;
+        const screenY = step.y * dpr;
+
+        if (window.Android?.tap) {
+          window.Android.tap(screenX, screenY);
+        } else if (window.Android?.performClick) {
+          window.Android.performClick(step.x, step.y);
+        }
       }
       // ----------------------------
 
@@ -749,6 +789,7 @@ function App() {
           mode={mode}
           steps={script.steps}
           onCanvasClick={handleCanvasClick}
+          onCanvasSwipe={handleCanvasSwipe}
           onStepClick={(id) => setSelectedStepId(id)}
           onStepUpdate={handleStepUpdate}
           selectedStepId={selectedStepId}

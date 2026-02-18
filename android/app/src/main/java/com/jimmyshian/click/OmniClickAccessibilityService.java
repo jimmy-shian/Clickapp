@@ -339,6 +339,12 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             performTapGesture(x, y);
         }
 
+        // Swipe gesture: Android.swipe(x1, y1, x2, y2, durationMs)
+        @JavascriptInterface
+        public void swipe(float x1, float y1, float x2, float y2, float durationMs) {
+            performSwipeGesture(x1, y1, x2, y2, (long) Math.max(100, durationMs));
+        }
+
         // 從 overlay 內開啟原生檔案選擇器。slot 用來區分要填到哪一個輸入框（如 "import", "song", "layout"）。
         @JavascriptInterface
         public void openFilePicker(String slot) {
@@ -500,6 +506,46 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Exception in performTapGesture", e);
+            }
+        });
+    }
+
+    private void performSwipeGesture(float x1, float y1, float x2, float y2, long durationMs) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return;
+        }
+
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                Path path = new Path();
+                path.moveTo(x1, y1);
+                path.lineTo(x2, y2);
+
+                GestureDescription.StrokeDescription stroke =
+                        new GestureDescription.StrokeDescription(path, 0, durationMs);
+
+                GestureDescription.Builder builder = new GestureDescription.Builder();
+                builder.addStroke(stroke);
+
+                Log.d(TAG, "Dispatching swipe gesture from (" + x1 + ", " + y1 + ") to (" + x2 + ", " + y2 + ") duration=" + durationMs + "ms");
+
+                boolean dispatched = dispatchGesture(builder.build(), new GestureResultCallback() {
+                    @Override
+                    public void onCompleted(GestureDescription gestureDescription) {
+                        Log.d(TAG, "Swipe gesture completed");
+                    }
+
+                    @Override
+                    public void onCancelled(GestureDescription gestureDescription) {
+                        Log.e(TAG, "Swipe gesture cancelled");
+                    }
+                }, null);
+
+                if (!dispatched) {
+                    Log.e(TAG, "dispatchGesture for swipe returned false (system rejected)");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Exception in performSwipeGesture", e);
             }
         });
     }

@@ -18,7 +18,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1L_zbIA-Umrp3C8Q3jSy_MT
 3. Run the app:
    `npm run dev`
 
-## Build for Android
+## IF need Build for Android (not nessecary)
 
 **Prerequisites:**  
 - Android Studio installed  

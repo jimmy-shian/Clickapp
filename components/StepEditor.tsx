@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 import { ClickStep } from '../types';
-import { X, Copy, Clock, Repeat, MapPin } from 'lucide-react';
+import { X, Copy, Clock, Repeat, MapPin, ArrowRight, Move } from 'lucide-react';
 
 interface StepEditorProps {
   step: ClickStep;
@@ -35,6 +35,13 @@ const parseFormattedTime = (timeStr: string): number | null => {
   if (isNaN(minutes) || isNaN(seconds) || isNaN(ms)) return null;
 
   return (minutes * 60000) + (seconds * 1000) + ms;
+};
+
+/** Helper: blur on Enter key to dismiss mobile keyboard */
+const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  if (e.key === 'Enter') {
+    (e.target as HTMLInputElement).blur();
+  }
 };
 
 export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeTime, playbackSpeed = 1, onUpdate, onClose, onDelete }) => {
@@ -178,9 +185,11 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
   const panelWidth = typeof window !== 'undefined' ? Math.min(256, window.innerWidth - 20) : 256;
   const panelMaxHeight = typeof window !== 'undefined' ? Math.min(400, window.innerHeight - 40) : 400;
 
+  const isSwipe = step.type === 'swipe';
+
   return (
     <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white p-4 border border-blue-500/30 pointer-events-auto overflow-y-auto"
-      style={{ ...panelStyle, width: panelWidth, maxHeight: panelMaxHeight }}>
+      style={{ ...panelStyle, width: panelWidth, maxHeight: panelMaxHeight, touchAction: 'manipulation' }}>
 
       <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2 cursor-move touch-none" onMouseDown={handleHeaderMouseDown} onTouchStart={handleHeaderTouchStart}>
         <h3 className="font-bold text-sm text-blue-400">Edit Point #{index + 1}</h3>
@@ -190,15 +199,41 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
       </div>
 
       <div className="flex flex-col gap-3">
+        {/* Step Type Selector */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Move size={10} /> Type</label>
+          <select
+            value={step.type}
+            onChange={(e) => {
+              const newType = e.target.value as ClickStep['type'];
+              const updates: Partial<ClickStep> = { type: newType };
+              if (newType === 'swipe' && step.endX === undefined) {
+                updates.endX = step.x + 100;
+                updates.endY = step.y;
+                updates.swipeDuration = 300;
+              }
+              onUpdate({ ...step, ...updates });
+            }}
+            className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs text-white focus:border-blue-500 outline-none"
+          >
+            <option value="click">Click</option>
+            <option value="swipe">Swipe</option>
+            <option value="double-click">Double Click</option>
+            <option value="hold">Hold</option>
+          </select>
+        </div>
+
         {/* Trigger Time (Editable) */}
         <div className="bg-blue-500/10 border border-blue-500/20 rounded p-2 text-center relative group">
           <label className="text-[10px] text-blue-300 uppercase block mb-1">Trigger Time {playbackSpeed !== 1 && `(${playbackSpeed}x)`}</label>
           <input
             type="text"
+            inputMode="decimal"
             value={localTimeStr}
             onChange={(e) => setLocalTimeStr(e.target.value)}
             onBlur={handleTimeBlur}
             onFocus={() => window.Android?.requestInputFocus?.()}
+            onKeyDown={blurOnEnter}
             className="w-full bg-transparent text-center font-mono text-xl font-bold text-white tracking-widest outline-none border-b border-transparent focus:border-blue-500 transition-colors"
             placeholder="00:00.000"
           />
@@ -207,18 +242,20 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
           </div>
         </div>
 
-        {/* Position */}
+        {/* Start Position */}
         <div className="space-y-1">
-          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><MapPin size={10} /> Position</label>
+          <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><MapPin size={10} /> {isSwipe ? 'Start Position' : 'Position'}</label>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <span className="text-xs text-gray-500 mr-1">X</span>
               <input
                 type="number"
+                inputMode="numeric"
                 value={Math.round(step.x)}
                 onChange={(e) => handleChange('x', Number(e.target.value))}
                 onFocus={() => window.Android?.requestInputFocus?.()}
                 onBlur={() => window.Android?.clearInputFocus?.()}
+                onKeyDown={blurOnEnter}
                 className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
@@ -226,15 +263,70 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
               <span className="text-xs text-gray-500 mr-1">Y</span>
               <input
                 type="number"
+                inputMode="numeric"
                 value={Math.round(step.y)}
                 onChange={(e) => handleChange('y', Number(e.target.value))}
                 onFocus={() => window.Android?.requestInputFocus?.()}
                 onBlur={() => window.Android?.clearInputFocus?.()}
+                onKeyDown={blurOnEnter}
                 className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
           </div>
         </div>
+
+        {/* End Position (Swipe only) */}
+        {isSwipe && (
+          <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+            <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><ArrowRight size={10} /> End Position</label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-xs text-gray-500 mr-1">X</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={Math.round(step.endX ?? step.x)}
+                  onChange={(e) => handleChange('endX', Number(e.target.value))}
+                  onFocus={() => window.Android?.requestInputFocus?.()}
+                  onBlur={() => window.Android?.clearInputFocus?.()}
+                  onKeyDown={blurOnEnter}
+                  className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <span className="text-xs text-gray-500 mr-1">Y</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={Math.round(step.endY ?? step.y)}
+                  onChange={(e) => handleChange('endY', Number(e.target.value))}
+                  onFocus={() => window.Android?.requestInputFocus?.()}
+                  onBlur={() => window.Android?.clearInputFocus?.()}
+                  onKeyDown={blurOnEnter}
+                  className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Swipe Duration (Swipe only) */}
+        {isSwipe && (
+          <div className="space-y-1 animate-in fade-in slide-in-from-top-1">
+            <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10} /> Swipe Duration (ms)</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="50"
+              value={step.swipeDuration ?? 300}
+              onChange={(e) => handleChange('swipeDuration', Math.max(50, Number(e.target.value)))}
+              onFocus={() => window.Android?.requestInputFocus?.()}
+              onBlur={() => window.Android?.clearInputFocus?.()}
+              onKeyDown={blurOnEnter}
+              className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
+            />
+          </div>
+        )}
 
         {/* Repeats */}
         <div className="space-y-1">
@@ -242,11 +334,13 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
           <div className="flex items-center gap-2">
             <input
               type="number"
+              inputMode="numeric"
               min="1"
               value={step.repeat}
               onChange={(e) => handleChange('repeat', Math.max(1, Number(e.target.value)))}
               onFocus={() => window.Android?.requestInputFocus?.()}
               onBlur={() => window.Android?.clearInputFocus?.()}
+              onKeyDown={blurOnEnter}
               className="flex-1 bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
             />
             <span className="text-xs text-gray-500">times</span>
@@ -259,11 +353,13 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
             <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10} /> Repeat Interval (ms)</label>
             <input
               type="number"
+              inputMode="numeric"
               min="0"
               value={step.repeatInterval}
               onChange={(e) => handleChange('repeatInterval', Math.max(0, Number(e.target.value)))}
               onFocus={() => window.Android?.requestInputFocus?.()}
               onBlur={() => window.Android?.clearInputFocus?.()}
+              onKeyDown={blurOnEnter}
               className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
             />
           </div>
@@ -274,11 +370,13 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
           <label className="text-[10px] text-gray-400 uppercase flex items-center gap-1"><Clock size={10} /> Delay from previous (ms)</label>
           <input
             type="number"
+            inputMode="numeric"
             min="0"
             value={step.delay}
             onChange={(e) => handleChange('delay', Math.max(0, Number(e.target.value)))}
             onFocus={() => window.Android?.requestInputFocus?.()}
             onBlur={() => window.Android?.clearInputFocus?.()}
+            onKeyDown={blurOnEnter}
             className="w-full bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
           />
         </div>
