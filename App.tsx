@@ -10,6 +10,7 @@ declare global {
   interface Window {
     Android?: {
       performClick: (x: number, y: number) => void;
+      performSwipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
       close?: () => void;
       updateOverlayRect?: (x: number, y: number, width: number, height: number) => void;
       tap?: (x: number, y: number) => void;
@@ -21,6 +22,8 @@ declare global {
       clearInputFocus?: () => void;
       setRecordingMode?: (recording: boolean) => void;
       setHudRect?: (x: number, y: number, width: number, height: number) => void;
+      dispatchRecordedGesture?: (canvasX: number, canvasY: number) => void;
+      dispatchRecordedSwipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
     };
     __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
   }
@@ -403,6 +406,11 @@ function App() {
           repeatInterval: 100
         };
 
+        // 錄製穿透：通知 Android 在底層 App 上執行原生 tap
+        if (window.Android?.dispatchRecordedGesture) {
+          window.Android.dispatchRecordedGesture(x, y);
+        }
+
         return { ...prev, steps: [...prev.steps, newStep] };
       });
     } else if (mode === AppMode.IDLE) {
@@ -430,6 +438,11 @@ function App() {
           repeat: 1,
           repeatInterval: 100
         };
+
+        // 錄製穿透：通知 Android 在底層 App 上執行原生 swipe
+        if (window.Android?.dispatchRecordedSwipe) {
+          window.Android.dispatchRecordedSwipe(x, y, endX, endY, swipeDuration);
+        }
 
         return { ...prev, steps: [...prev.steps, newStep] };
       });
@@ -585,27 +598,21 @@ function App() {
       if (!isPlayingRef.current) return;
 
       // --- PERFORM NATIVE GESTURE (gesture dispatch) ---
-      const dpr = window.devicePixelRatio || 1;
+      // 使用 canvas CSS 座標直接傳入 performClick / performSwipe，
+      // Java 端會用 canvas↔screen 比例做正確換算，不再用 dpr 乘法。
 
       if (step.type === 'swipe' && step.endX !== undefined && step.endY !== undefined) {
-        // Swipe gesture
-        const screenX1 = step.x * dpr;
-        const screenY1 = step.y * dpr;
-        const screenX2 = step.endX * dpr;
-        const screenY2 = step.endY * dpr;
         const swipeDur = step.swipeDuration ?? 300;
-
-        if (window.Android?.swipe) {
-          window.Android.swipe(screenX1, screenY1, screenX2, screenY2, swipeDur);
+        if (window.Android?.performSwipe) {
+          window.Android.performSwipe(step.x, step.y, step.endX, step.endY, swipeDur);
+        } else if (window.Android?.swipe) {
+          // 後備：舊版直接 pixel swipe
+          const dpr = window.devicePixelRatio || 1;
+          window.Android.swipe(step.x * dpr, step.y * dpr, step.endX * dpr, step.endY * dpr, swipeDur);
         }
       } else {
-        // Tap gesture
-        const screenX = step.x * dpr;
-        const screenY = step.y * dpr;
-
-        if (window.Android?.tap) {
-          window.Android.tap(screenX, screenY);
-        } else if (window.Android?.performClick) {
+        // Tap gesture — 使用 performClick（有 ratio mapping）
+        if (window.Android?.performClick) {
           window.Android.performClick(step.x, step.y);
         }
       }

@@ -287,6 +287,81 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         }
     }
 
+    /**
+     * 共用：將 canvas CSS 座標轉換為螢幕 pixel 座標。
+     * 回傳 float[2]，[0]=xPx, [1]=yPx
+     */
+    private float[] mapCanvasToScreen(float canvasX, float canvasY) {
+        float xPx, yPx;
+        if (canvasWidthCss > 0 && canvasHeightCss > 0 &&
+                canvasWidthPx > 0 && canvasHeightPx > 0) {
+            float xRatio = Math.max(0f, Math.min(1f, canvasX / canvasWidthCss));
+            float yRatio = Math.max(0f, Math.min(1f, canvasY / canvasHeightCss));
+            xPx = canvasOffsetXPx + (xRatio * canvasWidthPx);
+            yPx = canvasOffsetYPx + (yRatio * canvasHeightPx);
+        } else {
+            xPx = canvasX * density;
+            yPx = canvasY * density;
+        }
+        return new float[]{xPx, yPx};
+    }
+
+    /**
+     * 隱藏 touchView（錄製穿透用）
+     */
+    private void hideTouchOverlay() {
+        if (touchView == null || touchLayoutParams == null || windowManager == null) return;
+        try {
+            touchLayoutParams.width = 0;
+            touchLayoutParams.height = 0;
+            windowManager.updateViewLayout(touchView, touchLayoutParams);
+        } catch (Exception e) {
+            Log.e(TAG, "hideTouchOverlay failed", e);
+        }
+    }
+
+    /**
+     * 同時隱藏 touchView 與 webView（讓原生手勢可以穿透到底層 App）
+     */
+    private void hideAllOverlays() {
+        if (windowManager == null) return;
+        // 隱藏 touchView
+        hideTouchOverlay();
+        // 讓 webView 不可觸控且不佔位，但不移除（保留 JS 執行環境）
+        if (webView != null && webViewLayoutParams != null) {
+            try {
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                // 移到螢幕外，避免遮擋手勢
+                webViewLayoutParams.x = -10000;
+                windowManager.updateViewLayout(webView, webViewLayoutParams);
+            } catch (Exception e) {
+                Log.e(TAG, "hideAllOverlays webView failed", e);
+            }
+        }
+    }
+
+    /**
+     * 恢復所有 overlay（錄製穿透用，在手勢完成後呼叫）
+     */
+    private void restoreAllOverlays() {
+        if (windowManager == null) return;
+        // 恢復 webView
+        if (webView != null && webViewLayoutParams != null) {
+            try {
+                webViewLayoutParams.x = 0;
+                // 仍維持 NOT_FOCUSABLE + NOT_TOUCHABLE（overlay 模式，由 touchView 轉發觸控）
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                windowManager.updateViewLayout(webView, webViewLayoutParams);
+            } catch (Exception e) {
+                Log.e(TAG, "restoreAllOverlays webView failed", e);
+            }
+        }
+        // 恢復 touchView（使用目前 overlay 矩形）
+        updateTouchOverlayLayout();
+    }
+
     private class JsBridge {
 
         @JavascriptInterface
@@ -307,30 +382,9 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
         @JavascriptInterface
         public void performClick(float x, float y) {
-            // JS 傳入的是錄製時的 canvas 座標（CSS px），這裡依照「全螢幕 canvas」與實際螢幕的比例換算
-            float xPx = x;
-            float yPx = y;
-
-            if (canvasWidthCss > 0 && canvasHeightCss > 0 &&
-                    canvasWidthPx > 0 && canvasHeightPx > 0) {
-
-                float xRatio = x / canvasWidthCss;
-                float yRatio = y / canvasHeightCss;
-
-                // Clamp to [0, 1] 避免超出邊界
-                xRatio = Math.max(0f, Math.min(1f, xRatio));
-                yRatio = Math.max(0f, Math.min(1f, yRatio));
-
-                xPx = canvasOffsetXPx + (xRatio * canvasWidthPx);
-                yPx = canvasOffsetYPx + (yRatio * canvasHeightPx);
-            } else {
-                // 後備：尚未取得完整 canvas 資訊時，退回 density-based 換算（不再額外加上狀態列偏移）
-                xPx = x * density;
-                yPx = y * density;
-            }
-
-            Log.d(TAG, "performClick from JS -> canvas(x=" + x + ", y=" + y + ") mappedPx(x=" + xPx + ", y=" + yPx + ")");
-            tap(xPx, yPx);
+            float[] mapped = mapCanvasToScreen(x, y);
+            Log.d(TAG, "performClick from JS -> canvas(x=" + x + ", y=" + y + ") mappedPx(x=" + mapped[0] + ", y=" + mapped[1] + ")");
+            performTapGesture(mapped[0], mapped[1]);
         }
 
         // Alias that matches your spec: Android.tap(x, y)
@@ -339,10 +393,64 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             performTapGesture(x, y);
         }
 
-        // Swipe gesture: Android.swipe(x1, y1, x2, y2, durationMs)
+        /**
+         * 播放時的 swipe：JS 傳入 canvas CSS 座標，這裡做比例換算後呼叫原生 swipe。
+         */
+        @JavascriptInterface
+        public void performSwipe(float x1, float y1, float x2, float y2, float durationMs) {
+            float[] start = mapCanvasToScreen(x1, y1);
+            float[] end = mapCanvasToScreen(x2, y2);
+            Log.d(TAG, "performSwipe from JS -> canvas(" + x1 + "," + y1 + ")->(" + x2 + "," + y2 + ") mapped(" + start[0] + "," + start[1] + ")->(" + end[0] + "," + end[1] + ")");
+            performSwipeGesture(start[0], start[1], end[0], end[1], (long) Math.max(100, durationMs));
+        }
+
+        // 直接 pixel 的 swipe（舊版相容）
         @JavascriptInterface
         public void swipe(float x1, float y1, float x2, float y2, float durationMs) {
             performSwipeGesture(x1, y1, x2, y2, (long) Math.max(100, durationMs));
+        }
+
+        /**
+         * 錄製時的穿透 tap：JS 在錄完一個 click step 後呼叫，
+         * 先隱藏所有 overlay → 執行原生 tap → 完成後恢復 overlay。
+         */
+        @JavascriptInterface
+        public void dispatchRecordedGesture(float canvasX, float canvasY) {
+            float[] mapped = mapCanvasToScreen(canvasX, canvasY);
+            Log.d(TAG, "dispatchRecordedGesture canvas(" + canvasX + "," + canvasY + ") -> px(" + mapped[0] + "," + mapped[1] + ")");
+
+            new Handler(Looper.getMainLooper()).post(() -> {
+                hideAllOverlays();
+
+                // 短暫延遲讓 WindowManager 移除 overlay，確保手勢不會被攔截
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    dispatchTapWithCallback(mapped[0], mapped[1], () -> {
+                        // 手勢完成後恢復 overlay
+                        new Handler(Looper.getMainLooper()).post(() -> restoreAllOverlays());
+                    });
+                }, 50);
+            });
+        }
+
+        /**
+         * 錄製時的穿透 swipe：JS 在錄完一個 swipe step 後呼叫。
+         */
+        @JavascriptInterface
+        public void dispatchRecordedSwipe(float x1, float y1, float x2, float y2, float durationMs) {
+            float[] start = mapCanvasToScreen(x1, y1);
+            float[] end = mapCanvasToScreen(x2, y2);
+            long dur = (long) Math.max(100, durationMs);
+            Log.d(TAG, "dispatchRecordedSwipe canvas(" + x1 + "," + y1 + ")->(" + x2 + "," + y2 + ") -> px(" + start[0] + "," + start[1] + ")->(" + end[0] + "," + end[1] + ")");
+
+            new Handler(Looper.getMainLooper()).post(() -> {
+                hideAllOverlays();
+
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    dispatchSwipeWithCallback(start[0], start[1], end[0], end[1], dur, () -> {
+                        new Handler(Looper.getMainLooper()).post(() -> restoreAllOverlays());
+                    });
+                }, 50);
+            });
         }
 
         // 從 overlay 內開啟原生檔案選擇器。slot 用來區分要填到哪一個輸入框（如 "import", "song", "layout"）。
@@ -571,6 +679,80 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 Log.e(TAG, "Exception in performSwipeGesture", e);
             }
         });
+    }
+
+    /**
+     * 帶完成回呼的 tap 手勢（供錄製穿透使用）
+     */
+    private void dispatchTapWithCallback(float x, float y, Runnable onDone) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            if (onDone != null) onDone.run();
+            return;
+        }
+        try {
+            Path path = new Path();
+            path.moveTo(x, y);
+            path.lineTo(x, y);
+            GestureDescription.StrokeDescription stroke =
+                    new GestureDescription.StrokeDescription(path, 0, 100);
+            GestureDescription.Builder builder = new GestureDescription.Builder();
+            builder.addStroke(stroke);
+
+            Log.d(TAG, "dispatchTapWithCallback at (" + x + ", " + y + ")");
+            boolean ok = dispatchGesture(builder.build(), new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription g) {
+                    Log.d(TAG, "Recorded tap completed at (" + x + ", " + y + ")");
+                    if (onDone != null) onDone.run();
+                }
+                @Override
+                public void onCancelled(GestureDescription g) {
+                    Log.e(TAG, "Recorded tap cancelled at (" + x + ", " + y + ")");
+                    if (onDone != null) onDone.run();
+                }
+            }, null);
+            if (!ok && onDone != null) onDone.run();
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in dispatchTapWithCallback", e);
+            if (onDone != null) onDone.run();
+        }
+    }
+
+    /**
+     * 帶完成回呼的 swipe 手勢（供錄製穿透使用）
+     */
+    private void dispatchSwipeWithCallback(float x1, float y1, float x2, float y2, long durationMs, Runnable onDone) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            if (onDone != null) onDone.run();
+            return;
+        }
+        try {
+            Path path = new Path();
+            path.moveTo(x1, y1);
+            path.lineTo(x2, y2);
+            GestureDescription.StrokeDescription stroke =
+                    new GestureDescription.StrokeDescription(path, 0, durationMs);
+            GestureDescription.Builder builder = new GestureDescription.Builder();
+            builder.addStroke(stroke);
+
+            Log.d(TAG, "dispatchSwipeWithCallback (" + x1 + "," + y1 + ")->(" + x2 + "," + y2 + ") dur=" + durationMs);
+            boolean ok = dispatchGesture(builder.build(), new GestureResultCallback() {
+                @Override
+                public void onCompleted(GestureDescription g) {
+                    Log.d(TAG, "Recorded swipe completed");
+                    if (onDone != null) onDone.run();
+                }
+                @Override
+                public void onCancelled(GestureDescription g) {
+                    Log.e(TAG, "Recorded swipe cancelled");
+                    if (onDone != null) onDone.run();
+                }
+            }, null);
+            if (!ok && onDone != null) onDone.run();
+        } catch (Exception e) {
+            Log.e(TAG, "Exception in dispatchSwipeWithCallback", e);
+            if (onDone != null) onDone.run();
+        }
     }
 
     private void updateTouchOverlayLayout() {
