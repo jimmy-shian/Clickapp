@@ -188,8 +188,10 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
   const isSwipe = step.type === 'swipe';
 
   return (
-    <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white p-4 border border-blue-500/30 pointer-events-auto overflow-y-auto"
-      style={{ ...panelStyle, width: panelWidth, maxHeight: panelMaxHeight, touchAction: 'manipulation' }}>
+    <div className="fixed z-50 glass-panel rounded-xl shadow-2xl text-white p-4 border border-blue-500/30 pointer-events-auto overflow-y-auto overflow-x-hidden"
+      style={{ ...panelStyle, width: panelWidth, maxHeight: panelMaxHeight, touchAction: 'manipulation' }}
+      onClick={(e) => e.stopPropagation()}
+      onTouchStart={(e) => e.stopPropagation()}>
 
       <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2 cursor-move touch-none" onMouseDown={handleHeaderMouseDown} onTouchStart={handleHeaderTouchStart}>
         <h3 className="font-bold text-sm text-blue-400">Edit Point #{index + 1}</h3>
@@ -256,7 +258,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
                 onFocus={() => window.Android?.requestInputFocus?.()}
                 onBlur={() => window.Android?.clearInputFocus?.()}
                 onKeyDown={blurOnEnter}
-                className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                className="w-full bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
             <div>
@@ -269,7 +271,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
                 onFocus={() => window.Android?.requestInputFocus?.()}
                 onBlur={() => window.Android?.clearInputFocus?.()}
                 onKeyDown={blurOnEnter}
-                className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                className="w-full bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
               />
             </div>
           </div>
@@ -290,7 +292,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
                   onFocus={() => window.Android?.requestInputFocus?.()}
                   onBlur={() => window.Android?.clearInputFocus?.()}
                   onKeyDown={blurOnEnter}
-                  className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                  className="w-full bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
                 />
               </div>
               <div>
@@ -303,7 +305,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
                   onFocus={() => window.Android?.requestInputFocus?.()}
                   onBlur={() => window.Android?.clearInputFocus?.()}
                   onKeyDown={blurOnEnter}
-                  className="w-16 bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
+                  className="w-full bg-black/30 border border-gray-600 rounded px-1 py-0.5 text-xs focus:border-blue-500 outline-none"
                 />
               </div>
             </div>

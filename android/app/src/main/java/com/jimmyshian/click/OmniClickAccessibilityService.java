@@ -396,6 +396,19 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     Log.e(TAG, "requestInputFocus updateViewLayout failed", e);
                 }
                 webView.requestFocus();
+
+                // 隱藏 touchView，避免它攔截鍵盤觸控事件
+                // TYPE_ACCESSIBILITY_OVERLAY 層級高於軟鍵盤，touchView 會吃掉鍵盤的觸控
+                if (touchView != null && touchLayoutParams != null) {
+                    try {
+                        touchLayoutParams.width = 0;
+                        touchLayoutParams.height = 0;
+                        windowManager.updateViewLayout(touchView, touchLayoutParams);
+                        Log.d(TAG, "requestInputFocus: touchView hidden (0x0)");
+                    } catch (Exception e) {
+                        Log.e(TAG, "requestInputFocus hide touchView failed", e);
+                    }
+                }
             });
         }
 
@@ -416,6 +429,16 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
                     Log.e(TAG, "clearInputFocus updateViewLayout failed", e);
+                }
+
+                // 恢復 touchView 到上次的 overlay 矩形
+                if (touchView != null && touchLayoutParams != null) {
+                    try {
+                        updateTouchOverlayLayout();
+                        Log.d(TAG, "clearInputFocus: touchView restored");
+                    } catch (Exception e) {
+                        Log.e(TAG, "clearInputFocus restore touchView failed", e);
+                    }
                 }
             };
             clearFocusHandler.postDelayed(pendingClearFocusRunnable, 300);

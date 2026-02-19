@@ -30,6 +30,7 @@ interface FloatingHUDProps {
 
   // Script Config
   setLoop: (loop: boolean) => void;
+  setLoopCount: (count: number) => void;
   setScriptName: (name: string) => void;
 
   // Step Interaction
@@ -70,6 +71,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onExitApp,
   onConvertSheet,
   setLoop,
+  setLoopCount,
   setScriptName,
   onSelectStep,
   selectedStepId,
@@ -685,7 +687,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
             </div>
 
             {/* Loop Option */}
-            <div className="flex items-center justify-between px-1 py-2 shrink-0">
+            <div className="flex items-center justify-between px-1 py-2 shrink-0 gap-2">
               <label className="flex items-center gap-2 text-[12px] text-gray-300 cursor-pointer select-none hover:text-white transition-colors">
                 <input
                   type="checkbox"
@@ -693,8 +695,23 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   onChange={(e) => setLoop(e.target.checked)}
                   className="rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-offset-gray-900"
                 />
-                Infinite Loop Playback
+                Loop
               </label>
+              {script.metadata.loop && (
+                <div className="flex items-center gap-1 animate-in fade-in duration-200">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    value={script.metadata.loopCount}
+                    onChange={(e) => setLoopCount(Math.max(0, Number(e.target.value)))}
+                    onFocus={() => window.Android?.requestInputFocus?.()}
+                    onBlur={() => window.Android?.clearInputFocus?.()}
+                    className="w-16 bg-black/30 border border-gray-600 rounded px-2 py-0.5 text-xs text-white focus:border-blue-500 outline-none text-center"
+                  />
+                  <span className="text-[11px] text-gray-400 whitespace-nowrap">{script.metadata.loopCount === 0 ? '∞ infinite' : `times`}</span>
+                </div>
+              )}
             </div>
 
             {/* Step List */}

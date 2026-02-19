@@ -12,14 +12,16 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "OmniClickMainActivity";
-    private static final long CHECK_DELAY_MS = 500;
+    private static final long CHECK_DELAY_MS = 1500;
     private Handler checkHandler;
     private Runnable checkRunnable;
+    private boolean hasOpenedSettings = false;
 
     @Override
     public void onStart() {
         super.onStart();
         Log.d(TAG, "onStart called");
+        hasOpenedSettings = false;
         startPeriodicCheck();
     }
 
@@ -43,10 +45,15 @@ public class MainActivity extends BridgeActivity {
                 moveTaskToBack(true);
                 stopPeriodicCheck();
             } else {
-                Log.d(TAG, "Accessibility service is NOT enabled, showing settings");
-                // 服務未啟用，帶使用者去開啟
-                Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                startActivity(intent);
+                // 服務未啟用，只在第一次帶使用者去開啟設定
+                if (!hasOpenedSettings) {
+                    Log.d(TAG, "Accessibility service is NOT enabled, showing settings (first time)");
+                    Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                    startActivity(intent);
+                    hasOpenedSettings = true;
+                } else {
+                    Log.d(TAG, "Accessibility service is NOT enabled, waiting for user to enable...");
+                }
                 // 繼續檢查，直到服務啟用
                 checkHandler.postDelayed(checkRunnable, CHECK_DELAY_MS);
             }

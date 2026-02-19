@@ -106,6 +106,7 @@ function App() {
   // Playback & Recording Refs
   const playbackTimeoutRef = useRef<number | null>(null);
   const isPlayingRef = useRef(false);
+  const loopCounterRef = useRef(0);
   const startTimeRef = useRef<number>(0);
   const lastActionTimeRef = useRef<number>(0);
 
@@ -554,10 +555,21 @@ function App() {
       const tailDelay = Math.max(500, (recordedDuration - totalTimeUsed)) / speed;
 
       if (script.metadata.loop) {
-        playbackTimeoutRef.current = window.setTimeout(() => {
-          setSessionStartTime(Date.now()); // Reset timer for visual loop
-          playStep(0, 0);
-        }, tailDelay);
+        // Check loop count: 0 = infinite, N = loop N times
+        const maxLoops = script.metadata.loopCount || 0;
+        loopCounterRef.current += 1;
+
+        if (maxLoops > 0 && loopCounterRef.current >= maxLoops) {
+          // Reached max loop count, stop
+          playbackTimeoutRef.current = window.setTimeout(() => {
+            stopPlayback();
+          }, tailDelay);
+        } else {
+          playbackTimeoutRef.current = window.setTimeout(() => {
+            setSessionStartTime(Date.now()); // Reset timer for visual loop
+            playStep(0, 0);
+          }, tailDelay);
+        }
       } else {
         playbackTimeoutRef.current = window.setTimeout(() => {
           stopPlayback();
@@ -609,7 +621,7 @@ function App() {
       }
     }, delay);
 
-  }, [script.steps, script.metadata.loop, script.metadata.duration, stopPlayback]);
+  }, [script.steps, script.metadata.loop, script.metadata.loopCount, script.metadata.duration, stopPlayback]);
 
   const togglePlay = () => {
     if (mode === AppMode.PLAYING) {
@@ -619,6 +631,7 @@ function App() {
       setMode(AppMode.PLAYING);
       setSelectedStepId(null);
       isPlayingRef.current = true;
+      loopCounterRef.current = 0;
       setSessionStartTime(Date.now());
 
       // Start the chain
@@ -822,6 +835,7 @@ function App() {
         onConvertSheet={handleConvertSheet}
 
         setLoop={(loop) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loop } }))}
+        setLoopCount={(loopCount) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loopCount } }))}
         setScriptName={(name) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, name } }))}
 
         onSelectStep={setSelectedStepId}
