@@ -375,10 +375,8 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         }
 
         /**
-         * 當前端 input 取得焦點時呼叫。
-         * 只移除 FLAG_NOT_FOCUSABLE（讓 WebView 接收鍵盤文字輸入），
-         * 保留 FLAG_NOT_TOUCHABLE（觸控事件直接穿透到底層鍵盤）。
-         * 同時設定 touchView 也不可觸控，確保覆蓋區的觸控也穿透到鍵盤。
+         * 當前端 input 取得焦點時呼叫，移除 FLAG_NOT_FOCUSABLE 與 FLAG_NOT_TOUCHABLE
+         * 讓軟鍵盤可以彈出，且 WebView 可直接接收觸控事件（避免被 touch overlay 攔截）。
          */
         @JavascriptInterface
         public void requestInputFocus() {
@@ -390,11 +388,8 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     pendingClearFocusRunnable = null;
                 }
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
-
-                // 只移除 NOT_FOCUSABLE，讓 WebView 可接收鍵盤輸入
                 webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                // 確保 NOT_TOUCHABLE 保持設定，觸控事件穿透到鍵盤
-                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -402,14 +397,16 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 }
                 webView.requestFocus();
 
-                // 讓 touchView 也不可觸控，避免它攔截鍵盤觸控事件
+                // 隱藏 touchView，避免它攔截鍵盤觸控事件
+                // TYPE_ACCESSIBILITY_OVERLAY 層級高於軟鍵盤，touchView 會吃掉鍵盤的觸控
                 if (touchView != null && touchLayoutParams != null) {
                     try {
-                        touchLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                        touchLayoutParams.width = 0;
+                        touchLayoutParams.height = 0;
                         windowManager.updateViewLayout(touchView, touchLayoutParams);
-                        Log.d(TAG, "requestInputFocus: touchView set NOT_TOUCHABLE");
+                        Log.d(TAG, "requestInputFocus: touchView hidden (0x0)");
                     } catch (Exception e) {
-                        Log.e(TAG, "requestInputFocus touchView update failed", e);
+                        Log.e(TAG, "requestInputFocus hide touchView failed", e);
                     }
                 }
             });
@@ -434,12 +431,11 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     Log.e(TAG, "clearInputFocus updateViewLayout failed", e);
                 }
 
-                // 恢復 touchView 的觸控攔截能力
+                // 恢復 touchView 到上次的 overlay 矩形
                 if (touchView != null && touchLayoutParams != null) {
                     try {
-                        touchLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-                        windowManager.updateViewLayout(touchView, touchLayoutParams);
-                        Log.d(TAG, "clearInputFocus: touchView restored to touchable");
+                        updateTouchOverlayLayout();
+                        Log.d(TAG, "clearInputFocus: touchView restored");
                     } catch (Exception e) {
                         Log.e(TAG, "clearInputFocus restore touchView failed", e);
                     }

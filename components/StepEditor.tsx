@@ -343,7 +343,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
               onFocus={() => window.Android?.requestInputFocus?.()}
               onBlur={() => window.Android?.clearInputFocus?.()}
               onKeyDown={blurOnEnter}
-              className="w-full flex-1 bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
+              className="flex-1 bg-black/30 border border-gray-600 rounded px-2 py-1 text-xs focus:border-blue-500 outline-none"
             />
             <span className="text-xs text-gray-500">times</span>
           </div>
