@@ -643,13 +643,21 @@ function App() {
     } else {
       if (script.steps.length === 0) return;
 
+      // Determine start index: if a step is selected, start from that step
+      let startIndex = 0;
+      if (selectedStepId) {
+        const idx = script.steps.findIndex(s => s.id === selectedStepId);
+        if (idx >= 0) startIndex = idx;
+      }
+
       setMode(AppMode.PLAYING);
       setSelectedStepId(null);
       isPlayingRef.current = true;
       loopCounterRef.current = 0;
+      setSessionStartTime(Date.now());
 
-      // Start the chain
-      playStep(0, 0);
+      // Start the chain from the determined index
+      playStep(startIndex, 0);
     }
   };
 
@@ -821,9 +829,6 @@ function App() {
           onStepUpdate={handleStepUpdate}
           selectedStepId={selectedStepId}
           activePlaybackStepIndex={activePlaybackStepIndex}
-          scriptDuration={script.metadata.duration}
-          sessionStartTime={sessionStartTime}
-          playbackSpeed={playbackSpeed}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" />

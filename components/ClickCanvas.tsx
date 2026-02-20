@@ -10,9 +10,6 @@ interface ClickCanvasProps {
   onStepUpdate: (updatedStep: ClickStep) => void;
   selectedStepId: string | null;
   activePlaybackStepIndex?: number | null;
-  scriptDuration?: number;
-  sessionStartTime?: number | null;
-  playbackSpeed?: number;
 }
 
 const SWIPE_THRESHOLD = 15; // px – movement beyond this classifies touch as swipe
@@ -25,10 +22,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   onStepClick,
   onStepUpdate,
   selectedStepId,
-  activePlaybackStepIndex,
-  scriptDuration = 0,
-  sessionStartTime,
-  playbackSpeed = 1
+  activePlaybackStepIndex
 }) => {
   // Dragging logic
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null);
@@ -100,38 +94,6 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
     };
   }, [draggingStepId, mode, steps, onStepUpdate]);
 
-  // Playback Live Timer
-  const [liveElapsed, setLiveElapsed] = useState(0);
-
-  useEffect(() => {
-    let frameId: number;
-    const update = () => {
-      if ((mode === AppMode.RECORDING || mode === AppMode.PLAYING) && sessionStartTime) {
-        setLiveElapsed(Date.now() - sessionStartTime);
-        frameId = requestAnimationFrame(update);
-      }
-    };
-
-    if (mode === AppMode.RECORDING || mode === AppMode.PLAYING) {
-      update();
-    } else {
-      setLiveElapsed(0);
-    }
-
-    return () => cancelAnimationFrame(frameId);
-  }, [mode, sessionStartTime]);
-
-  const totalStepsDuration = steps.reduce((acc, step) => {
-    let d = acc + step.delay;
-    if (step.repeat > 1) d += (step.repeat - 1) * step.repeatInterval;
-    return d;
-  }, 0);
-
-  const displayDuration = (mode === AppMode.RECORDING || mode === AppMode.PLAYING)
-    ? liveElapsed
-    : Math.max(scriptDuration || 0, totalStepsDuration) / playbackSpeed;
-
-  const remainingTime = Math.max(0, (Math.max(scriptDuration || 0, totalStepsDuration) / playbackSpeed) - liveElapsed);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     // On Android overlay, touch events are dispatched from the native TouchOverlayView.
@@ -229,17 +191,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      {/* Playback Countdown Overlay */}
-      {mode === AppMode.PLAYING && remainingTime > 0 && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pointer-events-none">
-          <div className="text-[120px] font-black text-white/90 drop-shadow-[0_0_30px_rgba(59,130,246,0.8)] animate-pulse select-none">
-            {Math.ceil(remainingTime / 1000)}
-          </div>
-          <div className="text-xl text-white/80 font-mono tracking-widest drop-shadow-md">
-            REMAINING
-          </div>
-        </div>
-      )}
+
 
       {/* Playback Active Step Overlay (Top Center) */}
       {mode === AppMode.PLAYING && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && steps[activePlaybackStepIndex] && (
