@@ -506,6 +506,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
                 webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
                 webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -541,6 +542,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
                 webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
                 webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -557,7 +559,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     }
                 }
             };
-            clearFocusHandler.postDelayed(pendingClearFocusRunnable, 300);
+            clearFocusHandler.postDelayed(pendingClearFocusRunnable, 800);
         }
 
         /**

@@ -116,6 +116,9 @@ function App() {
   // Live Timer State
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
 
+  // Playback UI State
+  const [activePlaybackStepIndex, setActivePlaybackStepIndex] = useState<number | null>(null);
+
   // HUD Rect for Android touch layer alignment
   const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500, isCollapsed: false });
 
@@ -531,6 +534,7 @@ function App() {
         updateAndroidOverlayRect(0, 0, hudRectRef.current.width, hudRectRef.current.height);
       }
 
+      setMode(AppMode.RECORDING);
       const now = Date.now();
       startTimeRef.current = now;
       lastActionTimeRef.current = now; // Initialize relative timer
@@ -544,6 +548,7 @@ function App() {
       clearTimeout(playbackTimeoutRef.current);
     }
     isPlayingRef.current = false;
+    setActivePlaybackStepIndex(null);
     setMode(AppMode.IDLE);
     setSessionStartTime(null);
   }, []);
@@ -594,6 +599,8 @@ function App() {
     const step = script.steps[index];
     const delay = (subRepeatIndex === 0 ? step.delay : step.repeatInterval) / speed;
 
+    setActivePlaybackStepIndex(index);
+
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
 
@@ -635,11 +642,11 @@ function App() {
       stopPlayback();
     } else {
       if (script.steps.length === 0) return;
+
       setMode(AppMode.PLAYING);
       setSelectedStepId(null);
       isPlayingRef.current = true;
       loopCounterRef.current = 0;
-      setSessionStartTime(Date.now());
 
       // Start the chain
       playStep(0, 0);
@@ -813,6 +820,10 @@ function App() {
           onStepClick={(id) => setSelectedStepId(id)}
           onStepUpdate={handleStepUpdate}
           selectedStepId={selectedStepId}
+          activePlaybackStepIndex={activePlaybackStepIndex}
+          scriptDuration={script.metadata.duration}
+          sessionStartTime={sessionStartTime}
+          playbackSpeed={playbackSpeed}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" />
