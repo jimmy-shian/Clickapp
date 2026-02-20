@@ -303,6 +303,14 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             xPx = canvasX * density;
             yPx = canvasY * density;
         }
+
+        if (webView != null) {
+            int[] loc = new int[2];
+            webView.getLocationOnScreen(loc);
+            xPx += loc[0];
+            yPx += loc[1];
+        }
+
         return new float[]{xPx, yPx};
     }
 
@@ -784,15 +792,21 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                         + ", " + canvasOffsetYPx + ")");
             }
 
-            // 將像素值套用到觸控 overlay
+            int[] webViewLoc = new int[2];
+            if (webView != null) {
+                webView.getLocationOnScreen(webViewLoc);
+            }
+
+            // 將像素值套用到觸控 overlay，加上系統狀態列與 WebView 的螢幕實體座標偏移
             touchLayoutParams.width = wPx;
             touchLayoutParams.height = hPx;
-            touchLayoutParams.x = xPx;
-            touchLayoutParams.y = yPx;
+            touchLayoutParams.x = xPx + webViewLoc[0];
+            touchLayoutParams.y = yPx + webViewLoc[1];
 
             Log.d(TAG, "updateTouchOverlayLayout -> dp(x=" + overlayX + ", y=" + overlayY +
                     ", w=" + overlayWidth + ", h=" + overlayHeight + ") px(x=" + xPx +
-                    ", y=" + yPx + ", w=" + wPx + ", h=" + hPx + ")");
+                    ", y=" + yPx + ", w=" + wPx + ", h=" + hPx + ")" + 
+                    " final(" + touchLayoutParams.x + ", " + touchLayoutParams.y + ")");
 
             try {
                 windowManager.updateViewLayout(touchView, touchLayoutParams);
