@@ -11,6 +11,7 @@ interface StepEditorProps {
   onUpdate: (updatedStep: ClickStep) => void;
   onClose: () => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
 }
 
 const formatTime = (ms: number) => {
@@ -44,7 +45,7 @@ const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
   }
 };
 
-export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeTime, playbackSpeed = 1, onUpdate, onClose, onDelete }) => {
+export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeTime, playbackSpeed = 1, onUpdate, onClose, onDelete, onDuplicate }) => {
   const [localTimeStr, setLocalTimeStr] = useState('');
   const [panelPos, setPanelPos] = useState<{ left: number; top: number } | null>(null);
   const [isDraggingPanel, setIsDraggingPanel] = useState(false);
@@ -383,12 +384,22 @@ export const StepEditor: React.FC<StepEditorProps> = ({ step, index, cumulativeT
           />
         </div>
 
-        <button
-          onClick={onDelete}
-          className="mt-2 w-full flex items-center justify-center gap-2 py-1.5 bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded border border-red-500/20 transition-colors text-xs"
-        >
-          <X size={12} /> Delete Point
-        </button>
+        <div className="mt-2 flex gap-2">
+          {onDuplicate && (
+            <button
+              onClick={onDuplicate}
+              className="flex-1 flex items-center justify-center gap-2 py-1.5 bg-blue-500/10 hover:bg-blue-500/30 text-blue-400 hover:text-blue-300 rounded border border-blue-500/20 transition-colors text-xs"
+            >
+              <Copy size={12} /> Duplicate
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="flex-1 flex items-center justify-center gap-2 py-1.5 bg-red-500/10 hover:bg-red-500/30 text-red-400 hover:text-red-300 rounded border border-red-500/20 transition-colors text-xs"
+          >
+            <X size={12} /> Delete
+          </button>
+        </div>
       </div>
     </div>
   );

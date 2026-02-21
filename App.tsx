@@ -599,10 +599,11 @@ function App() {
     const step = script.steps[index];
     const delay = (subRepeatIndex === 0 ? step.delay : step.repeatInterval) / speed;
 
-    setActivePlaybackStepIndex(index);
-
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
+
+      // Update UI to show current step only when it actually executes
+      setActivePlaybackStepIndex(index);
 
       // --- PERFORM NATIVE GESTURE (gesture dispatch) ---
       // 使用 canvas CSS 座標直接傳入 performClick / performSwipe，
@@ -739,6 +740,24 @@ function App() {
     }
   }
 
+  const handleStepDuplicate = () => {
+    if (!selectedStepId) return;
+    setScript(prev => {
+      const idx = prev.steps.findIndex(s => s.id === selectedStepId);
+      if (idx < 0) return prev;
+      const original = prev.steps[idx];
+      const clone: ClickStep = {
+        ...original,
+        id: uuidv4(),
+        // Keep same delay as original so timeline shifts correctly
+        // e.g. A(3s) B(2s) → A(3s) A'(3s) B(2s)
+      };
+      const newSteps = [...prev.steps];
+      newSteps.splice(idx + 1, 0, clone);
+      return { ...prev, steps: newSteps };
+    });
+  };
+
   // Calculate cumulative time for the selected step to pass to editor if needed
   let cumulativeTime = 0;
   for (const s of script.steps) {
@@ -868,6 +887,7 @@ function App() {
         setPlaybackSpeed={setPlaybackSpeed}
 
         onRectChange={handleHudRectChange}
+        onDuplicateStep={handleStepDuplicate}
       />
 
       {/* Step Editor */}
@@ -880,6 +900,7 @@ function App() {
           onUpdate={handleStepUpdate}
           onClose={() => setSelectedStepId(null)}
           onDelete={handleStepDelete}
+          onDuplicate={handleStepDuplicate}
         />
       )}
     </div>

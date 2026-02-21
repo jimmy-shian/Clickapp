@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AppMode, ClickScript, SavedScriptSummary } from '../types';
-import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, Maximize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Clock, Music, ArrowRightLeft, FileText, Gauge, Power } from 'lucide-react';
+import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, Maximize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Clock, Music, ArrowRightLeft, FileText, Gauge, Power, Copy } from 'lucide-react';
 
 interface FloatingHUDProps {
   mode: AppMode;
@@ -14,6 +14,7 @@ interface FloatingHUDProps {
   onRecordToggle: () => void;
   onPlayToggle: () => void;
   onClear: () => void; // Clear current steps
+  onDuplicateStep?: () => void; // Duplicate selected step
 
   // Storage Actions
   onSaveLocal: () => void; // Save to local storage
@@ -77,7 +78,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   selectedStepId,
   playbackSpeed,
   setPlaybackSpeed,
-  onRectChange
+  onRectChange,
+  onDuplicateStep
 }) => {
   // Window State
   const [position, setPosition] = useState({ x: 20, y: 20 });
@@ -198,21 +200,19 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
   // --- Live Timer Effect ---
   useEffect(() => {
-    let frameId: number;
-    const update = () => {
-      if ((mode === AppMode.RECORDING || mode === AppMode.PLAYING) && sessionStartTime) {
+    let timerId: number | undefined;
+    if ((mode === AppMode.RECORDING || mode === AppMode.PLAYING) && sessionStartTime) {
+      // Immediate first update
+      setLiveDuration(Date.now() - sessionStartTime);
+      // Then update every second (saves CPU vs requestAnimationFrame @60fps)
+      timerId = window.setInterval(() => {
         setLiveDuration(Date.now() - sessionStartTime);
-        frameId = requestAnimationFrame(update);
-      }
-    };
-
-    if (mode === AppMode.RECORDING || mode === AppMode.PLAYING) {
-      update();
+      }, 1000);
     } else {
       setLiveDuration(0);
     }
 
-    return () => cancelAnimationFrame(frameId);
+    return () => { if (timerId !== undefined) clearInterval(timerId); };
   }, [mode, sessionStartTime]);
 
   // Determine what duration to show in the header
@@ -750,7 +750,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                           <span className={`font-mono text-lg opacity-70 ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
                             #{idx + 1}
                           </span>
-                          <span className="font-semibold text-lg">Click</span>
+                          <span className="font-semibold text-lg">
+                            {step.type === 'swipe' ? 'Swipe' : step.type === 'double-click' ? 'DblClick' : step.type === 'hold' ? 'Hold' : 'Click'}
+                          </span>
                         </div>
 
                         {/* Center/Right: Time */}
@@ -761,7 +763,16 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                         </div>
 
                         {/* Right: Coords (Fixed width to prevent time shift) */}
-                        <div className={`w-24 text-right font-mono text-[10px] ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
+                        <div className={`w-24 text-right font-mono text-[10px] flex items-center justify-end gap-1 ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
+                          {selectedStepId === step.id && onDuplicateStep && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onDuplicateStep(); }}
+                              className="p-1 rounded hover:bg-white/20 text-blue-200 hover:text-white transition-colors"
+                              title="Duplicate step"
+                            >
+                              <Copy size={12} />
+                            </button>
+                          )}
                           {Math.round(step.x)},{Math.round(step.y)}
                         </div>
                       </div>
