@@ -1,9 +1,98 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { AppMode, ClickStep } from '../types';
 import { formatTime } from '../utils/format';
 import { stepTypeLabel } from '../utils/timeline';
 import type { PlaybackProgress } from '../hooks/usePlaybackProgress';
 import { useTranslation } from '../utils/i18n';
+
+interface TimelineDotsCanvasProps {
+  steps: ClickStep[];
+  cumulative: number[];
+  totalScaled: number;
+  safeSpeed: number;
+  isPlaying: boolean;
+  activePlaybackStepIndex: number | null | undefined;
+  nextStepIdx: number;
+  onJumpToStep?: (stepId: string) => void;
+}
+
+const TimelineDotsCanvas: React.FC<TimelineDotsCanvasProps> = React.memo(({
+  steps,
+  cumulative,
+  totalScaled,
+  safeSpeed,
+  isPlaying,
+  activePlaybackStepIndex,
+  nextStepIdx,
+  onJumpToStep,
+}) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Use actual clientWidth for crisp rendering
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+
+    ctx.clearRect(0, 0, width, height);
+
+    if (totalScaled <= 0 || steps.length === 0) return;
+
+    const centerY = height / 2;
+
+    for (let i = 0; i < cumulative.length; i++) {
+      const tMs = cumulative[i];
+      const frac = Math.min(1, Math.max(0, tMs / safeSpeed / totalScaled));
+      const x = frac * width;
+
+      const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && i <= activePlaybackStepIndex;
+      const isNext = i === nextStepIdx;
+
+      ctx.beginPath();
+      if (isNext) {
+        ctx.arc(x, centerY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#fbbf24'; // amber-400
+      } else if (isDone) {
+        ctx.arc(x, centerY, 3, 0, Math.PI * 2);
+        ctx.fillStyle = '#93c5fd'; // blue-300
+      } else {
+        ctx.arc(x, centerY, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#6b7280'; // gray-500
+      }
+      ctx.fill();
+    }
+  }, [steps, cumulative, totalScaled, safeSpeed, isPlaying, activePlaybackStepIndex, nextStepIdx]);
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onJumpToStep || steps.length === 0) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const targetBase = frac * totalScaled * safeSpeed;
+    let idx = cumulative.findIndex((t) => t >= targetBase);
+    if (idx < 0) idx = steps.length - 1;
+    const id = steps[idx]?.id;
+    if (id) onJumpToStep(id);
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={`w-full h-3 mt-0.5 ${onJumpToStep ? 'cursor-pointer' : ''}`}
+      onClick={onJumpToStep ? handleClick : undefined}
+    />
+  );
+});
 
 interface PlaybackTimelineProps {
   mode: AppMode;
@@ -72,27 +161,35 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
         onClick={onJumpToStep ? handleBarClick : undefined}
       >
         <div className="absolute inset-y-0 left-0 bg-blue-500" style={{ width: `${Math.round((isPlaying ? pct : 0) * 100)}%` }} />
-      </div>
-      <div
-        className={`relative h-3 mt-0.5 ${onJumpToStep ? 'cursor-pointer' : ''}`}
-        onClick={onJumpToStep ? handleBarClick : undefined}
-      >
-        {cumulative.map((tMs, i) => {
-          const left = totalScaled > 0 ? Math.min(100, Math.max(0, (tMs / safeSpeed / totalScaled) * 100)) : 0;
-          const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && i <= activePlaybackStepIndex;
-          const isNext = i === nextStepIdx;
-          const id = steps[i]?.id;
+        {totalScaled > 0 && cumulative.map((tMs, idx) => {
+          const frac = Math.min(1, Math.max(0, tMs / safeSpeed / totalScaled));
+          const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && idx <= activePlaybackStepIndex;
+          const isNext = isPlaying && idx === nextStepIdx;
           return (
             <div
-              key={id ?? i}
-              onClick={id && onJumpToStep ? (e) => { e.stopPropagation(); onJumpToStep(id); } : undefined}
-              className={isNext ? 'absolute w-2 h-2 rounded-full bg-amber-400 cursor-pointer' : isDone ? 'absolute w-1.5 h-1.5 rounded-full bg-blue-300 cursor-pointer' : 'absolute w-1.5 h-1.5 rounded-full bg-gray-500 cursor-pointer'}
-              style={{ left: `calc(${left}% - 3px)`, top: '2px' }}
-              title={`#${i + 1} ${formatTime(tMs / safeSpeed)}`}
+              key={steps[idx]?.id || idx}
+              className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-full pointer-events-none ${
+                isNext
+                  ? 'w-1.5 h-1.5 bg-amber-300 ring-1 ring-amber-400 z-10'
+                  : isDone
+                  ? 'w-1 h-1 bg-white z-[1]'
+                  : 'w-1 h-1 bg-white/60 z-[1]'
+              }`}
+              style={{ left: `${frac * 100}%` }}
             />
           );
         })}
       </div>
+      <TimelineDotsCanvas
+        steps={steps}
+        cumulative={cumulative}
+        totalScaled={totalScaled}
+        safeSpeed={safeSpeed}
+        isPlaying={isPlaying}
+        activePlaybackStepIndex={activePlaybackStepIndex}
+        nextStepIdx={nextStepIdx}
+        onJumpToStep={onJumpToStep}
+      />
       {loop && (
         <div className="text-[11px] text-gray-300 mt-1">
           {isInfiniteLoop

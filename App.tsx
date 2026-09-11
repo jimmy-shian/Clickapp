@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ClickScript, ClickStep, AppMode, SavedScriptSummary } from './types';
 import { FloatingHUD } from './components/FloatingHUD';
@@ -59,6 +59,7 @@ function App() {
   const [completedLoops, setCompletedLoops] = useState(0);
   // 本輪起始步驟（從中間開始播放時，首步觸發前的進度/下一步顯示基準）
   const [playbackStartIndex, setPlaybackStartIndex] = useState(0);
+  const lastPlaybackUiUpdateRef = useRef<number>(0);
 
   // HUD Rect for Android touch layer alignment
   const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500, isCollapsed: false });
@@ -471,8 +472,12 @@ function App() {
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
 
-      // Update UI to show current step only when it actually executes
-      setActivePlaybackStepIndex(index);
+      // 視覺節流至 ~4Hz（>=250ms）或尾步更新，解耦手勢 dispatch 與 React 畫面重繪
+      const nowUi = Date.now();
+      if (nowUi - lastPlaybackUiUpdateRef.current >= 250 || index === script.steps.length - 1) {
+        lastPlaybackUiUpdateRef.current = nowUi;
+        setActivePlaybackStepIndex(index);
+      }
 
       // --- PERFORM NATIVE GESTURE (gesture dispatch) ---
       // 使用 canvas CSS 座標直接傳入 performClick / performSwipe，
@@ -622,11 +627,20 @@ function App() {
     });
   };
 
-  // Calculate cumulative time for the selected step to pass to editor if needed
-  const cumulativeTime = getCumulativeTimeUpTo(script.steps, selectedStepId);
+  // Calculate cumulative time for the selected step to pass to editor if needed (memoized to avoid O(n) per second tick)
+  const cumulativeTime = useMemo(
+    () => getCumulativeTimeUpTo(script.steps, selectedStepId),
+    [script.steps, selectedStepId]
+  );
 
-  const selectedStep = script.steps.find(s => s.id === selectedStepId);
-  const selectedStepIndex = script.steps.findIndex(s => s.id === selectedStepId);
+  const selectedStep = useMemo(
+    () => script.steps.find(s => s.id === selectedStepId),
+    [script.steps, selectedStepId]
+  );
+  const selectedStepIndex = useMemo(
+    () => script.steps.findIndex(s => s.id === selectedStepId),
+    [script.steps, selectedStepId]
+  );
 
   /** 當鍵盤開啟時，嚴格將觸控 overlay 限制在虛擬鍵盤上緣以上，絕不覆蓋鍵盤區 */
   const clampOverlayAboveKeyboard = useCallback((rect: { x: number; y: number; width: number; height: number }) => {
@@ -679,14 +693,21 @@ function App() {
     if (prev.x === x && prev.y === y && prev.width === width && prev.height === height && prev.isCollapsed === isCollapsed) {
       return;
     }
+    const dx = Math.abs(prev.x - x);
+    const dy = Math.abs(prev.y - y);
+    const hasSizeChanged = prev.width !== width || prev.height !== height;
+    // 距離變化小於 2px 且尺寸與收合無變化時略過，降低微幅震顫引發的原生 IPC
+    if (prev.isCollapsed === isCollapsed && !hasSizeChanged && dx < 2 && dy < 2) {
+      return;
+    }
     hudRectRef.current = { x, y, width, height, isCollapsed };
 
-    // 節流：拖曳中最多 ~8次/秒呼叫 WindowManager，降低發燙；收合狀態切換則立即同步
+    // 節流：拖曳中最多 ~5次/秒呼叫 WindowManager（200ms），大幅降低發燙；收合狀態切換則立即同步
     const now = Date.now();
-    if (prev.isCollapsed !== isCollapsed || now - lastHudSyncRef.current > 120) {
+    if (prev.isCollapsed !== isCollapsed || now - lastHudSyncRef.current > 200) {
       lastHudSyncRef.current = now;
     } else {
-      // 拖尾補送：節流期間被丟棄的最終位置，140ms 後補送一次，避免觸控層停在舊座標
+      // 拖尾補送：節流期間被丟棄的最終位置，220ms 後補送一次，避免觸控層停在舊座標
       if (pendingHudSyncRef.current !== null) window.clearTimeout(pendingHudSyncRef.current);
       const snapMode = mode;
       const snapEditing = isEditing;
@@ -707,7 +728,7 @@ function App() {
         } else if (snapMode !== AppMode.RECORDING && !snapEditing) {
           applyTouchOverlayRect(r);
         }
-      }, 140);
+      }, 220);
       return;
     }
 
@@ -841,6 +862,7 @@ function App() {
         setLoop={(loop) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loop } }))}
         setLoopCount={(loopCount) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loopCount } }))}
         setScriptName={(name) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, name } }))}
+        setScriptDuration={(durationMs) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, duration: durationMs } }))}
 
         onSelectStep={setSelectedStepId}
         selectedStepId={selectedStepId}

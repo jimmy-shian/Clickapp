@@ -27,7 +27,10 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
 }) => {
   // Dragging logic
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null);
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const pendingPosRef = useRef<{ x: number; y: number } | null>(null);
+  const rafIdRef = useRef<number | null>(null);
   const lastTouchTimeRef = useRef(0);
 
   useEffect(() => {
@@ -42,21 +45,44 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   const isEditing = !isRecording && mode === AppMode.IDLE && selectedStepId !== null;
 
   useEffect(() => {
+    const updateDragPos = () => {
+      if (pendingPosRef.current) {
+        setDragPos(pendingPosRef.current);
+        rafIdRef.current = null;
+      }
+    };
+
     const handleWindowMouseMove = (e: MouseEvent) => {
       if (draggingStepId && !isRecording && mode !== AppMode.PLAYING) {
-        const step = steps.find(s => s.id === draggingStepId);
-        if (step) {
-          onStepUpdate({
-            ...step,
-            x: e.clientX - dragOffset.current.x,
-            y: e.clientY - dragOffset.current.y
-          });
+        pendingPosRef.current = {
+          x: Math.round(e.clientX - dragOffset.current.x),
+          y: Math.round(e.clientY - dragOffset.current.y)
+        };
+        if (!rafIdRef.current) {
+          rafIdRef.current = requestAnimationFrame(updateDragPos);
         }
       }
     };
 
     const handleWindowMouseUp = () => {
       if (draggingStepId) {
+        if (rafIdRef.current) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        const finalPos = pendingPosRef.current;
+        if (finalPos) {
+          const step = steps.find(s => s.id === draggingStepId);
+          if (step && (step.x !== finalPos.x || step.y !== finalPos.y)) {
+            onStepUpdate({
+              ...step,
+              x: finalPos.x,
+              y: finalPos.y
+            });
+          }
+        }
+        pendingPosRef.current = null;
+        setDragPos(null);
         setDraggingStepId(null);
       }
     };
@@ -65,21 +91,36 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
     const handleWindowTouchMove = (e: TouchEvent) => {
       if (draggingStepId && !isRecording && mode !== AppMode.PLAYING) {
         e.preventDefault();
-        const step = steps.find(s => s.id === draggingStepId);
         const touch = e.touches[0];
-
-        if (step) {
-          onStepUpdate({
-            ...step,
-            x: touch.clientX - dragOffset.current.x,
-            y: touch.clientY - dragOffset.current.y
-          });
+        pendingPosRef.current = {
+          x: Math.round(touch.clientX - dragOffset.current.x),
+          y: Math.round(touch.clientY - dragOffset.current.y)
+        };
+        if (!rafIdRef.current) {
+          rafIdRef.current = requestAnimationFrame(updateDragPos);
         }
       }
     };
 
     const handleWindowTouchEnd = () => {
       if (draggingStepId) {
+        if (rafIdRef.current) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        const finalPos = pendingPosRef.current;
+        if (finalPos) {
+          const step = steps.find(s => s.id === draggingStepId);
+          if (step && (step.x !== finalPos.x || step.y !== finalPos.y)) {
+            onStepUpdate({
+              ...step,
+              x: finalPos.x,
+              y: finalPos.y
+            });
+          }
+        }
+        pendingPosRef.current = null;
+        setDragPos(null);
         setDraggingStepId(null);
       }
     };
@@ -92,6 +133,10 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
     }
 
     return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       window.removeEventListener('mousemove', handleWindowMouseMove);
       window.removeEventListener('mouseup', handleWindowMouseUp);
       window.removeEventListener('touchmove', handleWindowTouchMove);
@@ -206,8 +251,34 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
       {/* Render Connectors - During recording or editing */}
       {(isRecording || isEditing) && (
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
+          <defs>
+            <marker
+              id="arrowhead-normal"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 8 3, 0 6" fill="#f97316" />
+            </marker>
+            <marker
+              id="arrowhead-selected"
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+            >
+              <polygon points="0 0, 8 3, 0 6" fill="#fbbf24" />
+            </marker>
+          </defs>
           <polyline
-            points={steps.map(s => `${s.x},${s.y}`).join(' ')}
+            points={steps.map(s => {
+              const posX = draggingStepId === s.id && dragPos ? dragPos.x : s.x;
+              const posY = draggingStepId === s.id && dragPos ? dragPos.y : s.y;
+              return `${posX},${posY}`;
+            }).join(' ')}
             fill="none"
             stroke="#3b82f6"
             strokeWidth="1"
@@ -218,34 +289,20 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
           {steps.map((step) => {
             if (step.type === 'swipe' && step.endX !== undefined && step.endY !== undefined) {
               const isSelected = selectedStepId === step.id;
+              const posX = draggingStepId === step.id && dragPos ? dragPos.x : step.x;
+              const posY = draggingStepId === step.id && dragPos ? dragPos.y : step.y;
               return (
-                <g key={`swipe-${step.id}`}>
-                  <defs>
-                    <marker
-                      id={`arrowhead-${step.id}`}
-                      markerWidth="8"
-                      markerHeight="6"
-                      refX="7"
-                      refY="3"
-                      orient="auto"
-                    >
-                      <polygon
-                        points="0 0, 8 3, 0 6"
-                        fill={isSelected ? '#fbbf24' : '#f97316'}
-                      />
-                    </marker>
-                  </defs>
-                  <line
-                    x1={step.x}
-                    y1={step.y}
-                    x2={step.endX}
-                    y2={step.endY}
-                    stroke={isSelected ? '#fbbf24' : '#f97316'}
-                    strokeWidth={isSelected ? 3 : 2}
-                    strokeDasharray={isSelected ? 'none' : '6 3'}
-                    markerEnd={`url(#arrowhead-${step.id})`}
-                  />
-                </g>
+                <line
+                  key={`swipe-${step.id}`}
+                  x1={posX}
+                  y1={posY}
+                  x2={step.endX}
+                  y2={step.endY}
+                  stroke={isSelected ? '#fbbf24' : '#f97316'}
+                  strokeWidth={isSelected ? 3 : 2}
+                  strokeDasharray={isSelected ? 'none' : '6 3'}
+                  markerEnd={isSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead-normal)'}
+                />
               );
             }
             return null;
@@ -257,6 +314,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
       {(isRecording || isEditing) && steps.map((step, index) => {
         const isSelected = selectedStepId === step.id;
         const isSwipe = step.type === 'swipe';
+        const posX = draggingStepId === step.id && dragPos ? dragPos.x : step.x;
+        const posY = draggingStepId === step.id && dragPos ? dragPos.y : step.y;
         return (
           <React.Fragment key={step.id}>
             {/* Start point */}
@@ -268,8 +327,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
                 ${mode === AppMode.IDLE ? 'cursor-grab active:cursor-grabbing' : ''}
               `}
               style={{
-                left: step.x,
-                top: step.y,
+                left: posX,
+                top: posY,
                 borderColor: isSelected ? '#fbbf24' : undefined
               }}
             >

@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout source
@@ -81,3 +83,13 @@ jobs:
         with:
           name: omniclick-1.0.7
           path: android/app/build/outputs/apk/omniclick-*.apk
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/omniclick-*.apk
+          name: Release ${{ github.ref_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

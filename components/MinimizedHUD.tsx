@@ -60,7 +60,7 @@ export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
   if (status === 'playing') {
     return (
       <div
-        className={`fixed z-50 rounded-[27px] flex items-center gap-2 pointer-events-auto bg-gray-800 overflow-hidden shadow-lg transition-opacity duration-150 ${dragOpacityClass}`}
+        className={`fixed z-50 rounded-[27px] flex items-center gap-2 pointer-events-auto bg-gray-800 overflow-hidden transition-opacity duration-150 ${dragOpacityClass}`}
         style={{ ...boxStyle, border: '1px solid rgba(255,255,255,0.18)' }}
         onMouseDown={onMouseDown}
         onTouchStart={onTouchStart}
@@ -70,7 +70,7 @@ export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
             e.stopPropagation();
             if (!draggedRef.current) onStopActive();
           }}
-          className="ml-2 w-9 h-9 rounded-full flex items-center justify-center bg-amber-500 text-white shrink-0 shadow-sm"
+          className="ml-2 w-9 h-9 rounded-full flex items-center justify-center bg-amber-500 text-white shrink-0"
           title={t('minimizedStopTitle')}
         >
           <Square size={16} fill="white" className="text-white" />

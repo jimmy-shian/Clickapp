@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { AppMode, ClickScript, SavedScriptSummary } from '../types';
+import { AppMode, ClickScript, ClickStep, SavedScriptSummary } from '../types';
 import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy } from 'lucide-react';
 import { SafeNumberInput } from './SafeNumberInput';
 import { MinimizedHUD } from './MinimizedHUD';
 import { PlaybackTimeline } from './PlaybackTimeline';
-import { formatTime } from '../utils/format';
+import { formatTime, parseFormattedTime } from '../utils/format';
 import { blurOnEnter, stopTouchPropagation, handleInputFocus, handleInputBlur } from '../utils/input';
 import {
   reportOverlayRect,
@@ -50,6 +50,7 @@ interface FloatingHUDProps {
   setLoop: (loop: boolean) => void;
   setLoopCount: (count: number) => void;
   setScriptName: (name: string) => void;
+  setScriptDuration?: (durationMs: number) => void;
 
   // Step Interaction
   onSelectStep: (id: string | null) => void;
@@ -66,6 +67,163 @@ interface FloatingHUDProps {
   // 本輪起始步驟（從中間開始播放時，首步觸發前的顯示基準）
   playbackStartIndex?: number;
 }
+
+interface LiveDurationDisplayProps {
+  sessionStartTime: number | null;
+  isTimed: boolean;
+  totalDuration: number;
+}
+
+interface EditableDurationDisplayProps {
+  /** 顯示用總長（已除速 ms） */
+  totalDuration: number;
+  playbackSpeed: number;
+  /** commit 回傳 base ms（未除速），寫入 metadata.duration */
+  onCommit: (baseMs: number) => void;
+}
+
+/** 閒置時可編輯的總時長：可直接輸入秒數或分:秒，讓總長不必綁定錄製當下長度 */
+const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.memo(({
+  totalDuration,
+  playbackSpeed,
+  onCommit,
+}) => {
+  const [localStr, setLocalStr] = useState('');
+  const isFocusedRef = useRef(false);
+
+  // 非聚焦時同步外部值（例如載入腳本、步驟編輯導致總長變化）
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setLocalStr(formatTime(totalDuration));
+    }
+  }, [totalDuration]);
+
+  const handleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
+    isFocusedRef.current = false;
+    handleInputBlur();
+    const raw = e?.target?.value ?? localStr;
+    const newMs = parseFormattedTime(raw);
+    if (newMs !== null) {
+      const baseMs = Math.max(0, Math.round(newMs * playbackSpeed));
+      onCommit(baseMs);
+      setLocalStr(formatTime(baseMs / playbackSpeed));
+    } else {
+      // 無效輸入：還原顯示值
+      setLocalStr(formatTime(totalDuration));
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      enterKeyHint="done"
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      value={localStr}
+      onChange={(e) => setLocalStr(e.target.value)}
+      onFocus={(e) => {
+        isFocusedRef.current = true;
+        handleInputFocus(e);
+      }}
+      onBlur={handleBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          isFocusedRef.current = false;
+          handleBlur();
+          blurOnEnter(e);
+        }
+      }}
+      onTouchStart={stopTouchPropagation}
+      aria-label="總時長"
+      className="w-full bg-transparent text-right text-lg font-mono text-white font-semibold tracking-widest outline-none border-b border-transparent focus:border-blue-500 select-text"
+      placeholder="00:00.000"
+      style={{ touchAction: 'manipulation' }}
+    />
+  );
+});
+
+const LiveDurationDisplay: React.FC<LiveDurationDisplayProps> = React.memo(({
+  sessionStartTime,
+  isTimed,
+  totalDuration,
+}) => {
+  const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
+  const displayDuration = isTimed ? liveDuration : totalDuration;
+  return (
+    <div className="text-lg font-mono text-white font-semibold">
+      {formatTime(displayDuration)}
+    </div>
+  );
+});
+
+interface MemoStepRowProps {
+  step: ClickStep;
+  idx: number;
+  isSelected: boolean;
+  displayTime: string;
+  onSelect: (id: string) => void;
+  onDuplicate?: () => void;
+  duplicateTitle: string;
+  setRef: (el: HTMLDivElement | null) => void;
+}
+
+const MemoStepRow: React.FC<MemoStepRowProps> = React.memo(({
+  step,
+  idx,
+  isSelected,
+  displayTime,
+  onSelect,
+  onDuplicate,
+  duplicateTitle,
+  setRef,
+}) => {
+  return (
+    <div
+      ref={setRef}
+      onClick={() => onSelect(step.id)}
+      className={`relative p-3 cursor-pointer rounded mb-1 border ${isSelected
+        ? 'bg-blue-600 border-blue-400 text-white'
+        : 'bg-transparent border-white/5 text-gray-300'
+        }`}
+    >
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+        <div className="flex items-center gap-2 w-24">
+          <span className={`font-mono text-lg opacity-70 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
+            #{idx + 1}
+          </span>
+          <span className="font-semibold text-lg flex items-center gap-1">
+            <span>{stepTypeLabel(step.type)}</span>
+            {step.repeat > 1 && (
+              <span className="text-xs font-black text-amber-400 font-mono">×{step.repeat}</span>
+            )}
+          </span>
+        </div>
+
+        <div className="flex justify-end pr-4">
+          <span className={`font-mono text-[12px] font-black tabular-nums ${isSelected ? 'text-white' : 'text-gray-200'}`}>
+            {displayTime}
+          </span>
+        </div>
+
+        <div className={`w-24 text-right font-mono text-[10px] flex items-center justify-end gap-1 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
+          {isSelected && onDuplicate && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+              className="p-1 rounded text-blue-200"
+              title={duplicateTitle}
+            >
+              <Copy size={12} />
+            </button>
+          )}
+          {Math.round(step.x)},{Math.round(step.y)}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   mode,
@@ -90,6 +248,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   setLoop,
   setLoopCount,
   setScriptName,
+  setScriptDuration,
   onSelectStep,
   selectedStepId,
   playbackSpeed,
@@ -133,9 +292,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   // 步驟列表項目節點（時間軸跳轉時平滑捲動定位）
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
 
-  // 低頻計時：每秒刷新一次顯示即可，避免過度更新發燙（播放/錄影皆 1000ms，閒置不跑）
+  // 低頻計時：僅縮小 HUD 需要即時秒數，展開狀態用獨立組件隔絕 re-render
   const isTimed = mode === AppMode.RECORDING || mode === AppMode.PLAYING;
-  const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
+  const liveDuration = useLiveDuration(sessionStartTime, isTimed && isCollapsed, 1000);
 
   // 播放進度 / 下一步倒數（縮小 pill 與展開時間軸共用）
   const progress = usePlaybackProgress({
@@ -153,9 +312,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     () => getTotalStepsDuration(script.steps),
     [script.steps]
   );
-  const displayDuration = isTimed
-    ? liveDuration
-    : Math.max(script.metadata.duration || 0, totalStepsDuration) / playbackSpeed;
+  const totalDisplayDuration = Math.max(script.metadata.duration || 0, totalStepsDuration) / playbackSpeed;
 
   // 步驟列表顯示用累計時刻（取代 render 中 mutate 變數）
   const cumulative = useMemo(() => getStepCumulativeTimes(script.steps), [script.steps]);
@@ -630,9 +787,19 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               <div className="flex gap-4">
                 <div className="text-right min-w-[80px]">
                   <div className="text-[10px] text-gray-400 uppercase tracking-wider">{t('duration')}</div>
-                  <div className="text-lg font-mono text-white font-semibold">
-                    {formatTime(displayDuration)}
-                  </div>
+                  {isTimed ? (
+                    <LiveDurationDisplay
+                      sessionStartTime={sessionStartTime}
+                      isTimed={isTimed}
+                      totalDuration={totalDisplayDuration}
+                    />
+                  ) : (
+                    <EditableDurationDisplay
+                      totalDuration={totalDisplayDuration}
+                      playbackSpeed={playbackSpeed}
+                      onCommit={setScriptDuration ?? (() => {})}
+                    />
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="text-[10px] text-gray-400 uppercase tracking-wider">{t('steps')}</div>
@@ -725,55 +892,22 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 </div>
               ) : (
                 script.steps.map((step, idx) => {
-                  // 顯示時刻 = 累計觸發時刻 / 速度
                   const displayTime = formatTime(cumulative[idx] / playbackSpeed);
                   return (
-                    <div
+                    <MemoStepRow
                       key={step.id}
-                      ref={(el) => { if (el) itemRefs.current.set(step.id, el); else itemRefs.current.delete(step.id); }}
-                      onClick={() => onSelectStep(selectedStepId === step.id ? null : step.id)}
-                      className={`relative p-3 cursor-pointer rounded mb-1 border ${selectedStepId === step.id
-                        ? 'bg-blue-600 border-blue-400 text-white'
-                        : 'bg-transparent border-white/5 text-gray-300'
-                        }`}
-                    >
-                      {/* GRID LAYOUT FOR ALIGNMENT */}
-                      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-                        {/* Left: Label */}
-                        <div className="flex items-center gap-2 w-24">
-                          <span className={`font-mono text-lg opacity-70 ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
-                            #{idx + 1}
-                          </span>
-                          <span className="font-semibold text-lg flex items-center gap-1">
-                            <span>{stepTypeLabel(step.type)}</span>
-                            {step.repeat > 1 && (
-                              <span className="text-xs font-black text-amber-400 font-mono">×{step.repeat}</span>
-                            )}
-                          </span>
-                        </div>
-
-                        {/* Center/Right: Time */}
-                        <div className="flex justify-end pr-4">
-                          <span className={`font-mono text-[12px] font-black tabular-nums ${selectedStepId === step.id ? 'text-white' : 'text-gray-200'}`}>
-                            {displayTime}
-                          </span>
-                        </div>
-
-                        {/* Right: Coords (Fixed width to prevent time shift) */}
-                        <div className={`w-24 text-right font-mono text-[10px] flex items-center justify-end gap-1 ${selectedStepId === step.id ? 'text-blue-200' : 'text-gray-500'}`}>
-                          {selectedStepId === step.id && onDuplicateStep && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); onDuplicateStep(); }}
-                              className="p-1 rounded text-blue-200"
-                              title={t('duplicateStep')}
-                            >
-                              <Copy size={12} />
-                            </button>
-                          )}
-                          {Math.round(step.x)},{Math.round(step.y)}
-                        </div>
-                      </div>
-                    </div>
+                      step={step}
+                      idx={idx}
+                      isSelected={selectedStepId === step.id}
+                      displayTime={displayTime}
+                      onSelect={onSelectStep}
+                      onDuplicate={selectedStepId === step.id ? onDuplicateStep : undefined}
+                      duplicateTitle={t('duplicateStep')}
+                      setRef={(el) => {
+                        if (el) itemRefs.current.set(step.id, el);
+                        else itemRefs.current.delete(step.id);
+                      }}
+                    />
                   );
                 })
               )}

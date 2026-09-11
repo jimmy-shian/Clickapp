@@ -175,8 +175,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({
         width: panelWidth,
         maxHeight: panelMaxHeight,
         touchAction: 'manipulation',
-        background: 'rgba(22, 27, 34, 0.85)',
-        backdropFilter: 'blur(10px)',
+        background: 'rgba(22, 27, 34, 0.96)',
       }}
       onClick={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}

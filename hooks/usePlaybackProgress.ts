@@ -53,23 +53,33 @@ export function usePlaybackProgress({
     const safeSpeed = playbackSpeed > 0 ? playbackSpeed : 1;
     const totalScaled = totalBase / safeSpeed;
     const isPlaying = mode === AppMode.PLAYING;
+
+    if (!isPlaying) {
+      return {
+        safeSpeed,
+        totalScaled,
+        progress: 0,
+        nextStepIdx: -1,
+        nextInMs: 0,
+        cumulative,
+      };
+    }
+
     const clampedStart = steps.length > 0 ? Math.min(Math.max(0, startIndex), steps.length - 1) : 0;
     // 首步尚未觸發前，以起始步驟為基準（否則會誤顯示 #1）
-    const awaitingFirst = isPlaying && (activePlaybackStepIndex === null || activePlaybackStepIndex === undefined);
+    const awaitingFirst = activePlaybackStepIndex === null || activePlaybackStepIndex === undefined;
     const nextStepIdx = awaitingFirst
       ? (steps.length > 0 ? clampedStart : -1)
-      : getNextStepIndex(isPlaying, activePlaybackStepIndex, steps.length);
-    const nextInMs = isPlaying
-      ? getNextStepDelayMs(cumulative, nextStepIdx, safeSpeed, liveDuration)
-      : 0;
+      : getNextStepIndex(true, activePlaybackStepIndex, steps.length);
+    const nextInMs = getNextStepDelayMs(cumulative, nextStepIdx, safeSpeed, liveDuration);
     // 從中間開始時，進度條起點落在起始步驟的時間位置，而非 0%
-    const baseOffset = isPlaying && clampedStart > 0 && steps[clampedStart] !== undefined
+    const baseOffset = clampedStart > 0 && steps[clampedStart] !== undefined
       ? Math.max(0, cumulative[clampedStart] - steps[clampedStart].delay)
       : 0;
     const progress =
-      isPlaying && totalScaled > 0
+      totalScaled > 0
         ? Math.min(1, Math.max(0, (baseOffset / safeSpeed + liveDuration) / totalScaled))
         : 0;
     return { safeSpeed, totalScaled, progress, nextStepIdx, nextInMs, cumulative };
-  }, [mode, steps, totalBase, playbackSpeed, liveDuration, activePlaybackStepIndex, startIndex, cumulative]);
+  }, [mode, steps, totalBase, playbackSpeed, mode === AppMode.PLAYING ? liveDuration : 0, activePlaybackStepIndex, startIndex, cumulative]);
 }
