@@ -491,8 +491,20 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         }
 
         /**
-         * 當前端 input 取得焦點時呼叫，移除 FLAG_NOT_FOCUSABLE 與 FLAG_NOT_TOUCHABLE
-         * 讓軟鍵盤可以彈出，且 WebView 可直接接收觸控事件（避免被 touch overlay 攔截）。
+         * 當前端 input 取得焦點時呼叫，讓軟鍵盤可以彈出。
+         *
+         * 關鍵修正（避免點選字列時鍵盤收闔）：
+         * TYPE_ACCESSIBILITY_OVERLAY 層級高於輸入法視窗 (IME)。
+         * 若把全螢幕 WebView 切成可觸控 (清除 NOT_TOUCHABLE)，
+         * 手指點「鍵盤上緣選字列」會先打到透明的 WebView，
+         * 不但選字點不到，還會讓 input 失焦 → 鍵盤收起。
+         * 因此這裡只清除 NOT_FOCUSABLE（允許彈鍵盤），
+         * 刻意保留 NOT_TOUCHABLE + NOT_TOUCH_MODAL，
+         * 讓選字列觸控直接穿透給 IME；
+         * HUD 內的觸控仍經由 touchView 轉發 dispatchTouchEvent，
+         * 與視窗旗標無關，所以照常可用。
+         * 同理 touchView 也不再縮成 0x0，而是維持在 HUD 矩形，
+         * 避免整片穿透/攔截狀態劇烈切換。
          */
         @JavascriptInterface
         public void requestInputFocus() {
@@ -504,9 +516,10 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     pendingClearFocusRunnable = null;
                 }
                 if (webView == null || windowManager == null || webViewLayoutParams == null) return;
+                // 只允許取焦點以彈出鍵盤；保持 NOT_TOUCHABLE 讓 IME 觸控穿透
                 webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
-                webViewLayoutParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 try {
                     windowManager.updateViewLayout(webView, webViewLayoutParams);
                 } catch (Exception e) {
@@ -514,16 +527,14 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 }
                 webView.requestFocus();
 
-                // 隱藏 touchView，避免它攔截鍵盤觸控事件
-                // TYPE_ACCESSIBILITY_OVERLAY 層級高於軟鍵盤，touchView 會吃掉鍵盤的觸控
+                // 維持 touchView 在 HUD 矩形（轉發 HUD 觸控），不要縮成 0x0
+                // 這樣鍵盤/選字列區域自然穿透，只有 HUD 區域會被轉發
                 if (touchView != null && touchLayoutParams != null) {
                     try {
-                        touchLayoutParams.width = 0;
-                        touchLayoutParams.height = 0;
-                        windowManager.updateViewLayout(touchView, touchLayoutParams);
-                        Log.d(TAG, "requestInputFocus: touchView hidden (0x0)");
+                        updateTouchOverlayLayout();
+                        Log.d(TAG, "requestInputFocus: touchView kept at HUD rect");
                     } catch (Exception e) {
-                        Log.e(TAG, "requestInputFocus hide touchView failed", e);
+                        Log.e(TAG, "requestInputFocus keep touchView failed", e);
                     }
                 }
             });
@@ -531,16 +542,16 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
         /**
          * 當前端 input 失去焦點時呼叫。使用 300ms debounce 避免誤關鍵盤：
-         * 如使用者只是誤觸 overlay 或切換 input，requestInputFocus 會取消待執行的 clear。
-         * 同時恢復 FLAG_NOT_TOUCHABLE，讓 touch overlay 重新接管觸控事件。
+         * 如使用者只是在 input 之間切換，requestInputFocus 會取消待執行的 clear。
+         * 同時恢復 FLAG_NOT_FOCUSABLE，touch overlay 維持 HUD 矩形不變。
          */
         @JavascriptInterface
         public void clearInputFocus() {
             Log.d(TAG, "clearInputFocus (debounced 300ms)");
-            pendingClearFocusRunnable = () -> {
-                pendingClearFocusRunnable = null;
-                if (webView == null || windowManager == null || webViewLayoutParams == null) return;
-                webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                pendingClearFocusRunnable = () -> {
+                    pendingClearFocusRunnable = null;
+                    if (webView == null || windowManager == null || webViewLayoutParams == null) return;
+                    webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
                 webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
                 webViewLayoutParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
                 try {
@@ -559,7 +570,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                     }
                 }
             };
-            clearFocusHandler.postDelayed(pendingClearFocusRunnable, 800);
+            clearFocusHandler.postDelayed(pendingClearFocusRunnable, 300);
         }
 
         /**

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="https://vitejs.dev/logo.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>OmniClick Designer</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
@@ -35,10 +35,20 @@
       ::-webkit-scrollbar-thumb { background: rgba(85, 85, 85, 0.8); border-radius: 4px; }
       ::-webkit-scrollbar-thumb:hover { background: rgba(119, 119, 119, 0.9); }
       .glass-panel {
-        background: rgba(30, 30, 30, 0.9);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
+        /* 省電：實色背景，不用 backdrop blur（手機 GPU 高負載發燙主因） */
+        background: rgba(30, 30, 30, 0.96);
         border: 1px solid rgba(255, 255, 255, 0.15);
+      }
+      /* 省電：尊重系統「減少動態效果」，並避免 overlay 內無意義的過渡動畫持續耗電 */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+      /* 輸入框：避免雙擊縮放/手勢延遲造成失焦閃退；選字列觸控由原生層穿透保證 */
+      input, select, textarea, button {
+        touch-action: manipulation;
       }
     </style>
     <script type="module" crossorigin src="./assets/index.js"></script>

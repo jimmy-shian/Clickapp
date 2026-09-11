@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ClickStep, AppMode } from '../types';
+import { android } from '../utils/android';
 
 interface ClickCanvasProps {
   mode: AppMode;
@@ -9,7 +10,7 @@ interface ClickCanvasProps {
   onStepClick: (id: string) => void;
   onStepUpdate: (updatedStep: ClickStep) => void;
   selectedStepId: string | null;
-  activePlaybackStepIndex?: number | null;
+  onDragPointChange?: (isDragging: boolean) => void;
 }
 
 const SWIPE_THRESHOLD = 15; // px – movement beyond this classifies touch as swipe
@@ -22,12 +23,16 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   onStepClick,
   onStepUpdate,
   selectedStepId,
-  activePlaybackStepIndex
+  onDragPointChange,
 }) => {
   // Dragging logic
   const [draggingStepId, setDraggingStepId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const lastTouchTimeRef = useRef(0);
+
+  useEffect(() => {
+    onDragPointChange?.(draggingStepId !== null);
+  }, [draggingStepId, onDragPointChange]);
 
   // Swipe recording state
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -157,7 +162,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   };
 
   const handleStepMouseDown = (e: React.MouseEvent, step: ClickStep) => {
-    if (isRecording || mode === AppMode.PLAYING) return;
+    if (isRecording || mode === AppMode.PLAYING || android.isKeyboardOpen()) return;
 
     e.stopPropagation();
     onStepClick(step.id);
@@ -170,7 +175,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
   };
 
   const handleStepTouchStart = (e: React.TouchEvent, step: ClickStep) => {
-    if (isRecording || mode === AppMode.PLAYING) return;
+    if (isRecording || mode === AppMode.PLAYING || android.isKeyboardOpen()) return;
     e.stopPropagation();
     onStepClick(step.id);
     setDraggingStepId(step.id);
@@ -193,20 +198,7 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
     >
 
 
-      {/* Playback Active Step Overlay (Top Center) */}
-      {mode === AppMode.PLAYING && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && steps[activePlaybackStepIndex] && (
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 z-40 bg-black/60 backdrop-blur-sm border border-white/20 px-4 py-2 rounded-full shadow-lg pointer-events-none animate-in fade-in slide-in-from-top-4">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-            <span className="text-white font-mono font-bold text-sm">
-              #{activePlaybackStepIndex + 1}
-            </span>
-            <span className="text-gray-300 text-xs font-medium">
-              {steps[activePlaybackStepIndex].type.toUpperCase()}
-            </span>
-          </div>
-        </div>
-      )}
+      {/* 執行中步驟顯示已整並至 HUD（縮小 pill / 時間軸），此處不再重複顯示 */}
 
       {/* Background Layer (Transparent Overlay) */}
       <div className="absolute inset-0 pointer-events-none"></div>
@@ -252,7 +244,6 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
                     strokeWidth={isSelected ? 3 : 2}
                     strokeDasharray={isSelected ? 'none' : '6 3'}
                     markerEnd={`url(#arrowhead-${step.id})`}
-                    className="transition-all"
                   />
                 </g>
               );
@@ -272,8 +263,8 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
             <div
               onMouseDown={(e) => handleStepMouseDown(e, step)}
               onTouchStart={(e) => handleStepTouchStart(e, step)}
-              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white transition-transform z-10 select-none pointer-events-auto
-                ${isSelected ? 'bg-blue-600 border-white scale-125 shadow-[0_0_10px_rgba(37,99,235,0.8)] z-20' : isSwipe ? 'bg-orange-500/40 border-orange-400 hover:bg-orange-500/60' : 'bg-blue-500/30 border-blue-400 hover:bg-blue-500/60'}
+              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white z-10 select-none pointer-events-auto
+                ${isSelected ? 'bg-blue-600 border-white z-20' : isSwipe ? 'bg-orange-500/40 border-orange-400' : 'bg-blue-500/30 border-blue-400'}
                 ${mode === AppMode.IDLE ? 'cursor-grab active:cursor-grabbing' : ''}
               `}
               style={{
@@ -283,11 +274,16 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
               }}
             >
               {index + 1}
+              {step.repeat > 1 && (
+                <span className="absolute -top-2 -right-2 bg-amber-500 text-black font-black text-[8px] px-1 rounded-full shadow-sm leading-tight border border-black/40 pointer-events-none">
+                  ×{step.repeat}
+                </span>
+              )}
             </div>
             {/* Swipe end point marker */}
             {isSwipe && step.endX !== undefined && step.endY !== undefined && (
               <div
-                className={`absolute flex items-center justify-center w-4 h-4 -ml-2 -mt-2 rounded-full border text-[8px] transition-transform z-10 select-none pointer-events-none
+                className={`absolute flex items-center justify-center w-4 h-4 -ml-2 -mt-2 rounded-full border text-[8px] z-10 select-none pointer-events-none
                   ${isSelected ? 'bg-yellow-500/60 border-yellow-300' : 'bg-orange-400/40 border-orange-300'}
                 `}
                 style={{

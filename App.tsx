@@ -4,95 +4,26 @@ import { ClickScript, ClickStep, AppMode, SavedScriptSummary } from './types';
 import { FloatingHUD } from './components/FloatingHUD';
 import { ClickCanvas } from './components/ClickCanvas';
 import { StepEditor } from './components/StepEditor';
-
-// Declaration for Android Interface
-declare global {
-  interface Window {
-    Android?: {
-      performClick: (x: number, y: number) => void;
-      performSwipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
-      close?: () => void;
-      updateOverlayRect?: (x: number, y: number, width: number, height: number) => void;
-      tap?: (x: number, y: number) => void;
-      swipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
-      reportPos?: (x: number, y: number, width: number, height: number) => void;
-      openFilePicker?: (slot: string) => void;
-      saveFile?: (name: string, content: string) => void;
-      requestInputFocus?: () => void;
-      clearInputFocus?: () => void;
-      setRecordingMode?: (recording: boolean) => void;
-      setHudRect?: (x: number, y: number, width: number, height: number) => void;
-      dispatchRecordedGesture?: (canvasX: number, canvasY: number) => void;
-      dispatchRecordedSwipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
-    };
-    __omniclickOnFilePicked?: (slot: string, fileName: string, content: string) => void;
-  }
-}
-
-const STORAGE_KEY = 'omniclick_scripts';
-
-const generateUniqueNewScriptName = (): string => {
-  const baseName = 'New Script';
-
-  try {
-    if (typeof window === 'undefined') {
-      return `${baseName} #1`;
-    }
-  } catch {
-    return `${baseName} #1`;
-  }
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return `${baseName} #1`;
-    }
-
-    const parsed = JSON.parse(raw);
-    const allScripts: any[] = Object.values(parsed);
-
-    const regex = /^New Script(?: #(\d+))?$/;
-    let maxIndex = 0;
-
-    for (const s of allScripts) {
-      const name: string | undefined = s && s.metadata && s.metadata.name;
-      if (!name) continue;
-      const match = name.match(regex);
-      if (!match) continue;
-      const n = match[1] ? parseInt(match[1], 10) : 0;
-      if (!isNaN(n) && n > maxIndex) {
-        maxIndex = n;
-      }
-    }
-
-    const nextIndex = maxIndex + 1;
-    return `${baseName} #${nextIndex}`;
-  } catch (e) {
-    console.error('Failed to generate unique script name', e);
-    return `${baseName} #1`;
-  }
-};
-
-const generateNewScript = (): ClickScript => {
-  const now = Date.now();
-  return {
-    metadata: {
-      id: uuidv4(),
-      name: generateUniqueNewScriptName(),
-      version: '1.0',
-      loop: false,
-      loopCount: 0,
-      createdAt: now,
-      updatedAt: now,
-      duration: 0
-    },
-    steps: []
-  };
-};
+import {
+  loadScriptSummaries,
+  saveScript as persistScript,
+  loadScriptById,
+  deleteScriptById,
+  createNewScript,
+} from './services/scriptStorage';
+import { convertSheetFiles } from './services/sheetConverter';
+import {
+  android,
+  getAndroidBridge,
+  subscribeKeyboardOpen,
+} from './utils/android';
+import { withTouchPadding, EXPANDED_EXTRA_BOTTOM, unionRects } from './utils/geometry';
+import { getTotalStepsDuration, getCumulativeTimeUpTo } from './utils/timeline';
+import { t } from './utils/i18n';
 
 function App() {
   const [mode, setMode] = useState<AppMode>(AppMode.IDLE);
-  const [script, setScript] = useState<ClickScript>(generateNewScript());
+  const [script, setScript] = useState<ClickScript>(createNewScript);
 
   // Navigation State
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
@@ -105,6 +36,12 @@ function App() {
 
   // Editing State
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [isDraggingPoint, setIsDraggingPoint] = useState(false);
+
+  // 鍵盤開關（任一輸入框聚焦即開）：開著時觸控層從全螢幕縮為 HUD＋編輯器聯集，
+  // 鍵盤區觸控穿透給 IME，按鍵不再被轉發進 WebView 造成 blur 關鍵盤
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
+  useEffect(() => subscribeKeyboardOpen(setIsKeyboardOpen), []);
 
   // Playback & Recording Refs
   const playbackTimeoutRef = useRef<number | null>(null);
@@ -118,70 +55,41 @@ function App() {
 
   // Playback UI State
   const [activePlaybackStepIndex, setActivePlaybackStepIndex] = useState<number | null>(null);
+  // 已完成的循環次數（state 版，供 HUD 縮小時顯示；loopCount=0 無限循環也會累計）
+  const [completedLoops, setCompletedLoops] = useState(0);
+  // 本輪起始步驟（從中間開始播放時，首步觸發前的進度/下一步顯示基準）
+  const [playbackStartIndex, setPlaybackStartIndex] = useState(0);
 
   // HUD Rect for Android touch layer alignment
   const hudRectRef = useRef({ x: 20, y: 20, width: 380, height: 500, isCollapsed: false });
+  // StepEditor 面板矩形（viewport CSS px；只在鍵盤開啟＋編輯中時與 HUD 聯集設觸控層）
+  const editorRectRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  // 節流：避免拖曳 HUD 時高頻呼叫 WindowManager（發燙/耗電主因之一）
+  const lastHudSyncRef = useRef(0);
+  const pendingHudSyncRef = useRef<number | null>(null);
 
   // Helper: sync overlay rect to Android if bridge is available
-  const updateAndroidOverlayRect = (x: number, y: number, width: number, height: number) => {
-    if (!window.Android) return;
-    if (window.Android.updateOverlayRect) {
-      window.Android.updateOverlayRect(x, y, width, height);
-    } else if (window.Android.reportPos) {
-      window.Android.reportPos(x, y, width, height);
-    }
-  };
+  // useCallback 穩定引用：避免 FloatingHUD 矩形同步 effect 在每次 render（打字/計時 tick）都觸發原生重排
+  const updateAndroidOverlayRect = useCallback((x: number, y: number, width: number, height: number) => {
+    android.reportOverlayRect(x, y, width, height);
+  }, []);
 
   // --- Sync Speed Ref ---
   useEffect(() => {
     playbackSpeedRef.current = playbackSpeed;
   }, [playbackSpeed]);
 
-  // --- Storage Logic ---
+  // --- Storage Logic (本體見 services/scriptStorage) ---
   useEffect(() => {
     loadSavedScriptsList();
   }, []);
 
   const loadSavedScriptsList = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        const summary: SavedScriptSummary[] = Object.values(parsed).map((s: any) => ({
-          id: s.metadata.id,
-          name: s.metadata.name,
-          updatedAt: s.metadata.updatedAt || Date.now(),
-          stepCount: s.steps.length
-        }));
-        // Sort by newest
-        summary.sort((a, b) => b.updatedAt - a.updatedAt);
-        setSavedScripts(summary);
-      }
-    } catch (e) {
-      console.error("Failed to load scripts", e);
-    }
+    setSavedScripts(loadScriptSummaries());
   };
 
   const saveScriptToStorage = (scriptToSave: ClickScript) => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const allScripts = raw ? JSON.parse(raw) : {};
-
-      const updatedScript = {
-        ...scriptToSave,
-        metadata: {
-          ...scriptToSave.metadata,
-          updatedAt: Date.now()
-        }
-      };
-
-      allScripts[updatedScript.metadata.id] = updatedScript;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(allScripts));
-      return updatedScript;
-    } catch (e) {
-      console.error("Storage error", e);
-      throw new Error("Failed to save to local storage.");
-    }
+    return persistScript(scriptToSave);
   };
 
   const handleSaveLocal = () => {
@@ -199,60 +107,34 @@ function App() {
   };
 
   const handleLoadLocal = (id: string) => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const allScripts = JSON.parse(raw);
-        const target = allScripts[id];
-        if (target) {
-          setScript(target);
-          setIsScriptLoaded(true);
-          setMode(AppMode.IDLE);
-        }
-      }
-    } catch (e) {
-      console.error(e);
+    const target = loadScriptById(id);
+    if (target) {
+      setScript(target);
+      setIsScriptLoaded(true);
+      setMode(AppMode.IDLE);
     }
   };
 
   const handleDeleteLocal = (id: string) => {
     if (!window.confirm("Are you sure you want to delete this script?")) return;
 
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const allScripts = JSON.parse(raw);
-        delete allScripts[id];
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(allScripts));
-        loadSavedScriptsList();
+    deleteScriptById(id);
+    loadSavedScriptsList();
 
-        // If we deleted the current one, close it
-        if (script.metadata.id === id) {
-          handleCloseScript();
-        }
-      }
-    } catch (e) { console.error(e); }
+    // If we deleted the current one, close it
+    if (script.metadata.id === id) {
+      handleCloseScript();
+    }
   };
 
   const handleCreateNew = () => {
-    setScript(generateNewScript());
+    setScript(createNewScript());
     setIsScriptLoaded(true);
     setMode(AppMode.IDLE);
   };
 
   const handleClear = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const allScripts = JSON.parse(raw);
-        if (allScripts[script.metadata.id]) {
-          delete allScripts[script.metadata.id];
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(allScripts));
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    deleteScriptById(script.metadata.id);
 
     setScript(prev => ({ ...prev, steps: [] }));
     setSelectedStepId(null);
@@ -269,107 +151,21 @@ function App() {
   const handleExitApp = () => {
     // Remove confirm dialog to ensure direct exit
     // Attempt various close methods
-    if (window.Android && typeof window.Android.close === 'function') {
-      window.Android.close();
+    const bridge = getAndroidBridge();
+    if (bridge && typeof bridge.close === 'function') {
+      android.close();
     } else if (typeof window.close === 'function') {
-      window.close();
+      try { window.close(); } catch { /* noop */ }
     }
   };
 
-  // --- Logic: Converter ---
+  // --- Logic: Converter (本體見 services/sheetConverter) ---
   const handleConvertSheet = async (songFile: File, mapFile: File) => {
     try {
-      const songText = await songFile.text();
-      const mapText = await mapFile.text();
-
-      let songData;
-      let mapData;
-
-      try {
-        songData = JSON.parse(songText);
-        mapData = JSON.parse(mapText);
-      } catch (e) {
-        alert("Error parsing JSON files. Please check format.");
-        return;
-      }
-
-      // 1. Process Song Data
-      // Handle array wrapper if present (user example shows array)
-      const songEntry = Array.isArray(songData) ? songData[0] : songData;
-      if (!songEntry || !songEntry.songNotes) {
-        alert("Invalid Song JSON format. Missing 'songNotes'.");
-        return;
-      }
-
-      // Sort notes by time just in case
-      const notes = songEntry.songNotes.sort((a: any, b: any) => a.time - b.time);
-
-      // 2. Process Map Data
-      if (!mapData.steps || mapData.steps.length < 15) {
-        alert("Layout script must have at least 15 steps (Key1 to Key15).");
-        return;
-      }
-
-      // 3. Generate Steps
-      const newSteps: ClickStep[] = [];
-      let previousTime = 0;
-
-      for (const note of notes) {
-        // Parse Key format "Key5", "Key12", etc.
-        const keyMatch = note.key && note.key.match(/Key(\d+)/);
-        if (!keyMatch) continue; // Skip invalid keys
-
-        const keyNum = parseInt(keyMatch[1], 10);
-        const stepIndex = keyNum - 1; // 0-based index
-
-        if (stepIndex < 0 || stepIndex >= mapData.steps.length) {
-          console.warn(`Key${keyNum} out of bounds for layout script.`);
-          continue;
-        }
-
-        const targetPos = mapData.steps[stepIndex];
-
-        // Calculate delay relative to previous action
-        const delay = Math.max(0, note.time - previousTime);
-
-        newSteps.push({
-          id: uuidv4(),
-          x: targetPos.x,
-          y: targetPos.y,
-          delay: delay, // Store delay BEFORE this step
-          type: 'click',
-          repeat: 1,
-          repeatInterval: 100
-        });
-
-        previousTime = note.time;
-      }
-
-      if (newSteps.length === 0) {
-        alert("No valid notes converted.");
-        return;
-      }
-
-      // 4. Create Script
-      const newScript: ClickScript = {
-        metadata: {
-          id: uuidv4(),
-          name: `Converted: ${songEntry.name || 'Song'}`,
-          version: '1.0',
-          loop: false,
-          loopCount: 0,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          duration: previousTime + 1000 // Buffer at end
-        },
-        steps: newSteps
-      };
-
-      // 5. Save
+      const { script: newScript, stepCount } = await convertSheetFiles(songFile, mapFile);
       saveScriptToStorage(newScript);
       loadSavedScriptsList();
-      alert(`Success! Created script "${newScript.metadata.name}" with ${newSteps.length} steps.`);
-
+      alert(`Success! Created script "${newScript.metadata.name}" with ${stepCount} steps.`);
     } catch (e: any) {
       console.error(e);
       alert("Conversion failed: " + e.message);
@@ -410,9 +206,7 @@ function App() {
         };
 
         // 錄製穿透：通知 Android 在底層 App 上執行原生 tap
-        if (window.Android?.dispatchRecordedGesture) {
-          window.Android.dispatchRecordedGesture(x, y);
-        }
+        getAndroidBridge()?.dispatchRecordedGesture?.(x, y);
 
         return { ...prev, steps: [...prev.steps, newStep] };
       });
@@ -443,24 +237,104 @@ function App() {
         };
 
         // 錄製穿透：通知 Android 在底層 App 上執行原生 swipe
-        if (window.Android?.dispatchRecordedSwipe) {
-          window.Android.dispatchRecordedSwipe(x, y, endX, endY, swipeDuration);
-        }
+        getAndroidBridge()?.dispatchRecordedSwipe?.(x, y, endX, endY, swipeDuration);
 
         return { ...prev, steps: [...prev.steps, newStep] };
       });
     }
   };
 
+  /**
+   * 錄製結束/暫停時整併步驟：
+   * 將連續點擊同一位置（距離 <= 24px）的點自動變換為單一步驟的重複次數 (repeat)，
+   * 並計算平均間隔 (repeatInterval)，保持總時長與節奏不變。
+   * 其餘時候（例如使用者複製新增）則不進行整併。
+   */
+  const consolidateSteps = (steps: ClickStep[], thresholdPx = 24): ClickStep[] => {
+    if (steps.length <= 1) return steps;
+    const result: ClickStep[] = [];
+    const thresholdSq = thresholdPx * thresholdPx;
+
+    let i = 0;
+    while (i < steps.length) {
+      const cur = steps[i];
+
+      // 非普通點擊（例如滑動 swipe）不整併
+      if (cur.type !== 'click') {
+        result.push(cur);
+        i++;
+        continue;
+      }
+
+      // 向後尋找同一位置的連續點擊
+      let j = i + 1;
+      let totalRepeat = cur.repeat || 1;
+      const intervals: number[] = [];
+
+      // 若當前步驟已有 repeat，展開現有間隔
+      if (cur.repeat > 1 && cur.repeatInterval) {
+        for (let k = 0; k < cur.repeat - 1; k++) {
+          intervals.push(cur.repeatInterval);
+        }
+      }
+
+      while (j < steps.length) {
+        const next = steps[j];
+        if (next.type !== 'click') break;
+
+        const dx = next.x - cur.x;
+        const dy = next.y - cur.y;
+        if (dx * dx + dy * dy > thresholdSq) {
+          // 位置不同，停止整併
+          break;
+        }
+
+        // 同一位置的連續點擊：累計次數並記錄與前一點的 delay 作為間隔
+        const nextRepeat = next.repeat || 1;
+        totalRepeat += nextRepeat;
+        intervals.push(next.delay);
+
+        if (next.repeat > 1 && next.repeatInterval) {
+          for (let k = 0; k < next.repeat - 1; k++) {
+            intervals.push(next.repeatInterval);
+          }
+        }
+
+        j++;
+      }
+
+      if (j > i + 1) {
+        // 成功整併多個連續點擊
+        const avgInterval = intervals.length > 0
+          ? Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length)
+          : (cur.repeatInterval || 100);
+
+        result.push({
+          ...cur,
+          repeat: totalRepeat,
+          repeatInterval: Math.max(20, avgInterval),
+        });
+        i = j;
+      } else {
+        result.push(cur);
+        i++;
+      }
+    }
+
+    return result;
+  };
+
   const toggleRecord = () => {
     if (mode === AppMode.RECORDING) {
       // STOP RECORDING
       setScript(prev => {
+        // 完成錄製時自動整併同一位置的連續點擊為該點重複次數
+        const consolidated = consolidateSteps(prev.steps);
         const now = Date.now();
 
-        // Calculate steps duration based on LATEST script state (prev)
+        // Calculate steps duration based on LATEST consolidated script state
         let stepsDuration = 0;
-        prev.steps.forEach(s => {
+        consolidated.forEach(s => {
           stepsDuration += s.delay;
           if (s.repeat > 1) stepsDuration += (s.repeat - 1) * s.repeatInterval;
         });
@@ -472,6 +346,7 @@ function App() {
 
         const finalScript = {
           ...prev,
+          steps: consolidated,
           metadata: {
             ...prev.metadata,
             duration: totalDuration
@@ -494,9 +369,7 @@ function App() {
       loadSavedScriptsList();
 
       // 通知 Android 停止錄製穿透 tap
-      if (window.Android?.setRecordingMode) {
-        window.Android.setRecordingMode(false);
-      }
+      android.setRecordingMode(false);
 
       // 錄製結束：還原成只覆蓋 HUD 的觸控區
       const r = hudRectRef.current;
@@ -504,17 +377,15 @@ function App() {
     } else {
       // START RECORDING
       // 通知 Android 開始錄製穿透 tap
-      if (window.Android?.setRecordingMode) {
-        window.Android.setRecordingMode(true);
-      }
+      android.setRecordingMode(true);
 
       // 強制同步 HUD rect → Android（screen px），確保錄製啟動時排除區域立即有效
-      if (window.Android?.setHudRect) {
+      {
         const dpr = window.devicePixelRatio || 1;
         const r = hudRectRef.current;
         // 展開時加 extraBottom，與 handleHudRectChange 一致
-        const extraH = r.isCollapsed ? 0 : 24;
-        window.Android.setHudRect(
+        const extraH = r.isCollapsed ? 0 : EXPANDED_EXTRA_BOTTOM;
+        android.setHudRect(
           r.x * dpr,
           r.y * dpr,
           r.width * dpr,
@@ -549,8 +420,10 @@ function App() {
     }
     isPlayingRef.current = false;
     setActivePlaybackStepIndex(null);
+    setPlaybackStartIndex(0);
     setMode(AppMode.IDLE);
     setSessionStartTime(null);
+    // completedLoops 保留，供展開版時間軸查看本次共執行幾次；下次播放開始時重置
   }, []);
 
   const playStep = useCallback((index: number, subRepeatIndex: number = 0) => {
@@ -560,13 +433,7 @@ function App() {
     // SCRIPT ENDED
     if (index >= script.steps.length) {
       // Calculate remaining duration (tail)
-      let totalTimeUsed = 0;
-      script.steps.forEach(s => {
-        totalTimeUsed += s.delay;
-        if (s.repeat > 1) {
-          totalTimeUsed += (s.repeat - 1) * s.repeatInterval;
-        }
-      });
+      const totalTimeUsed = getTotalStepsDuration(script.steps);
 
       const recordedDuration = script.metadata.duration || 0;
       // Adjust tail for speed
@@ -576,6 +443,7 @@ function App() {
         // Check loop count: 0 = infinite, N = loop N times
         const maxLoops = script.metadata.loopCount || 0;
         loopCounterRef.current += 1;
+        setCompletedLoops(loopCounterRef.current); // 同步給 HUD（每輪一次，低頻）
 
         if (maxLoops > 0 && loopCounterRef.current >= maxLoops) {
           // Reached max loop count, stop
@@ -585,6 +453,7 @@ function App() {
         } else {
           playbackTimeoutRef.current = window.setTimeout(() => {
             setSessionStartTime(Date.now()); // Reset timer for visual loop
+            setPlaybackStartIndex(0); // 新一輪從頭開始，顯示基準同步歸零
             playStep(0, 0);
           }, tailDelay);
         }
@@ -611,18 +480,17 @@ function App() {
 
       if (step.type === 'swipe' && step.endX !== undefined && step.endY !== undefined) {
         const swipeDur = step.swipeDuration ?? 300;
-        if (window.Android?.performSwipe) {
-          window.Android.performSwipe(step.x, step.y, step.endX, step.endY, swipeDur);
-        } else if (window.Android?.swipe) {
+        const bridge = getAndroidBridge();
+        if (bridge?.performSwipe) {
+          bridge.performSwipe(step.x, step.y, step.endX, step.endY, swipeDur);
+        } else if (bridge?.swipe) {
           // 後備：舊版直接 pixel swipe
           const dpr = window.devicePixelRatio || 1;
-          window.Android.swipe(step.x * dpr, step.y * dpr, step.endX * dpr, step.endY * dpr, swipeDur);
+          bridge.swipe(step.x * dpr, step.y * dpr, step.endX * dpr, step.endY * dpr, swipeDur);
         }
       } else {
         // Tap gesture — 使用 performClick（有 ratio mapping）
-        if (window.Android?.performClick) {
-          window.Android.performClick(step.x, step.y);
-        }
+        getAndroidBridge()?.performClick?.(step.x, step.y);
       }
       // ----------------------------
 
@@ -655,6 +523,8 @@ function App() {
       setSelectedStepId(null);
       isPlayingRef.current = true;
       loopCounterRef.current = 0;
+      setCompletedLoops(0);
+      setPlaybackStartIndex(startIndex);
       setSessionStartTime(Date.now());
 
       // Start the chain from the determined index
@@ -676,13 +546,7 @@ function App() {
     const jsonContent = JSON.stringify(script, null, 2);
 
     // If running inside Android overlay WebView, prefer native save flow if available
-    if (typeof window !== 'undefined' && (window as any).Android) {
-      const androidBridge = (window as any).Android as { saveFile?: (name: string, content: string) => void };
-      if (androidBridge && typeof androidBridge.saveFile === 'function') {
-        androidBridge.saveFile(fileName, jsonContent);
-        return;
-      }
-    }
+    if (android.saveFile(fileName, jsonContent)) return;
 
     // Fallback: regular browser download via data URL
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(jsonContent);
@@ -759,52 +623,160 @@ function App() {
   };
 
   // Calculate cumulative time for the selected step to pass to editor if needed
-  let cumulativeTime = 0;
-  for (const s of script.steps) {
-    if (s.id === selectedStepId) {
-      cumulativeTime += s.delay;
-      break;
-    }
-    cumulativeTime += s.delay;
-    if (s.repeat > 1) {
-      cumulativeTime += (s.repeat - 1) * s.repeatInterval;
-    }
-  }
+  const cumulativeTime = getCumulativeTimeUpTo(script.steps, selectedStepId);
 
   const selectedStep = script.steps.find(s => s.id === selectedStepId);
   const selectedStepIndex = script.steps.findIndex(s => s.id === selectedStepId);
 
-  const handleHudRectChange = (x: number, y: number, width: number, height: number, isCollapsed: boolean) => {
+  /** 當鍵盤開啟時，嚴格將觸控 overlay 限制在虛擬鍵盤上緣以上，絕不覆蓋鍵盤區 */
+  const clampOverlayAboveKeyboard = useCallback((rect: { x: number; y: number; width: number; height: number }) => {
+    if (typeof window === 'undefined') return rect;
+    // 取得可視區高度（鍵盤上緣），預留 8px 安全距離
+    const viewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight * 0.55;
+    const maxBottom = Math.max(40, viewportHeight - 8);
+    if (rect.y >= maxBottom) {
+      return { x: rect.x, y: rect.y, width: 0, height: 0 };
+    }
+    const clampedHeight = Math.min(rect.height, Math.max(0, maxBottom - rect.y));
+    return { ...rect, height: clampedHeight };
+  }, []);
+
+  /** 將 HUD 矩形套用到觸控 overlay（縮小外擴 padding / 展開底部加高，鍵盤開啟時限制在鍵盤以上） */
+  const applyTouchOverlayRect = useCallback((rect: { x: number; y: number; width: number; height: number; isCollapsed: boolean }) => {
+    if (rect.isCollapsed) {
+      // 縮小時外擴一圈 padding，避免因座標/尺寸誤差導致點不到
+      const p = withTouchPadding(rect);
+      const target = isKeyboardOpen ? clampOverlayAboveKeyboard(p) : p;
+      updateAndroidOverlayRect(target.x, target.y, target.width, target.height);
+    } else {
+      // 展開時底部外加高度，確保底部按鈕在 overlay 範圍內
+      const extraH = isKeyboardOpen ? 0 : EXPANDED_EXTRA_BOTTOM;
+      const target = isKeyboardOpen
+        ? clampOverlayAboveKeyboard({ ...rect, height: rect.height + extraH })
+        : { ...rect, height: rect.height + extraH };
+      updateAndroidOverlayRect(target.x, target.y, target.width, target.height);
+    }
+  }, [updateAndroidOverlayRect, isKeyboardOpen, clampOverlayAboveKeyboard]);
+
+  /** 回報 HUD 矩形給 Android（CSS px → 螢幕 px），錄製時排除此區域不穿透 tap */
+  const reportHudRectToAndroid = useCallback((rect: { x: number; y: number; width: number; height: number }) => {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    android.setHudRect(rect.x * dpr, rect.y * dpr, rect.width * dpr, rect.height * dpr);
+  }, []);
+
+  /** 鍵盤開啟＋編輯中：觸控層改為 HUD＋編輯器面板的外包聯集（嚴格限制在鍵盤以上，穿透鍵盤給 IME） */
+  const applyUnionTouchRect = useCallback(() => {
+    const u = unionRects(hudRectRef.current, editorRectRef.current);
+    const clamped = clampOverlayAboveKeyboard(u);
+    updateAndroidOverlayRect(clamped.x, clamped.y, clamped.width, clamped.height);
+  }, [updateAndroidOverlayRect, clampOverlayAboveKeyboard]);
+
+  // useCallback 穩定引用：打字/計時 tick 不改變此函式身份，HUD 端矩形同步 effect 才不會誤觸原生重排
+  const handleHudRectChange = useCallback((x: number, y: number, width: number, height: number, isCollapsed: boolean) => {
     const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
+    const prev = hudRectRef.current;
+    // 相同矩形直接跳過（HUD 端已去重，這裡是第二道防線）
+    if (prev.x === x && prev.y === y && prev.width === width && prev.height === height && prev.isCollapsed === isCollapsed) {
+      return;
+    }
     hudRectRef.current = { x, y, width, height, isCollapsed };
 
-    // 回報 HUD 矩形給 Android，錄製時排除此區域不穿透 tap
-    // 轉換 CSS px → 螢幕 px
-    if (window.Android?.setHudRect) {
-      const dpr = window.devicePixelRatio || 1;
-      window.Android.setHudRect(x * dpr, y * dpr, width * dpr, height * dpr);
+    // 節流：拖曳中最多 ~8次/秒呼叫 WindowManager，降低發燙；收合狀態切換則立即同步
+    const now = Date.now();
+    if (prev.isCollapsed !== isCollapsed || now - lastHudSyncRef.current > 120) {
+      lastHudSyncRef.current = now;
+    } else {
+      // 拖尾補送：節流期間被丟棄的最終位置，140ms 後補送一次，避免觸控層停在舊座標
+      if (pendingHudSyncRef.current !== null) window.clearTimeout(pendingHudSyncRef.current);
+      const snapMode = mode;
+      const snapEditing = isEditing;
+      const snapSelected = selectedStepId;
+      const snapKeyboard = isKeyboardOpen;
+      pendingHudSyncRef.current = window.setTimeout(() => {
+        pendingHudSyncRef.current = null;
+        lastHudSyncRef.current = Date.now();
+        const r = hudRectRef.current;
+        reportHudRectToAndroid(r);
+        // 與即時路徑一致：鍵盤開著時不用全螢幕，編輯中用聯集
+        if (snapKeyboard) {
+          if (snapMode === AppMode.IDLE && snapSelected !== null) {
+            applyUnionTouchRect();
+          } else {
+            applyTouchOverlayRect(r);
+          }
+        } else if (snapMode !== AppMode.RECORDING && !snapEditing) {
+          applyTouchOverlayRect(r);
+        }
+      }, 140);
+      return;
+    }
+
+    reportHudRectToAndroid({ x, y, width, height });
+
+    // 鍵盤開著時不用全螢幕：改用 HUD（＋編輯中再聯集編輯器面板），鍵盤區穿透給 IME；
+    // 錄製/編輯＋鍵盤關閉時維持原邏輯（錄製由 toggleRecord 控制全螢幕）
+    if (isKeyboardOpen) {
+      if (mode === AppMode.IDLE && selectedStepId !== null) {
+        applyUnionTouchRect();
+      } else {
+        applyTouchOverlayRect({ x, y, width, height, isCollapsed });
+      }
+      return;
     }
 
     // 非錄製狀態下，用 HUD 矩形當作觸控 overlay；錄製時 overlay 由 toggleRecord 控制
     if (mode !== AppMode.RECORDING && !isEditing) {
-      if (isCollapsed) {
-        // 縮小成園點時，給 HUD 周圍多一圈 padding，避免因座標/尺寸誤差導致圓點點不到
-        const padding = 16;
-        const ox = Math.max(0, x - padding);
-        const oy = Math.max(0, y - padding);
-        const ow = width + padding * 2;
-        const oh = height + padding * 2;
-        updateAndroidOverlayRect(ox, oy, ow, oh);
-      } else {
-        // 展開狀態下，額外在下方多給一些高度，確保底部按鈕也在觸控 overlay 範圍內
-        const extraBottom = 24; // dp / CSS px，實際會乘上 density
-        updateAndroidOverlayRect(x, y, width, height + extraBottom);
-      }
+      applyTouchOverlayRect({ x, y, width, height, isCollapsed });
     }
-  };
+  }, [mode, selectedStepId, isKeyboardOpen, applyTouchOverlayRect, applyUnionTouchRect, reportHudRectToAndroid]);
+
+  /** StepEditor 面板矩形回報：只在鍵盤開啟＋編輯中時即時刷新聯集觸控層 */
+  const handleEditorRectChange = useCallback((x: number, y: number, width: number, height: number) => {
+    editorRectRef.current = { x, y, width, height };
+    if (isKeyboardOpen && mode === AppMode.IDLE && selectedStepId !== null) {
+      applyUnionTouchRect();
+    }
+  }, [isKeyboardOpen, mode, selectedStepId, applyUnionTouchRect]);
+
+  // 監聽視窗可視高度變化（鍵盤彈出/收起時），動態調整觸控層避開鍵盤；支援手機內建導覽列/返回鍵自動收闔
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const onViewportResize = () => {
+      // 若視窗高度恢復到接近 window.innerHeight，代表使用者透過手機內建導覽列/返回鍵收闔了鍵盤
+      if (window.visualViewport && window.visualViewport.height >= window.innerHeight - 60) {
+        if (isKeyboardOpen) {
+          android.setKeyboardOpen(false);
+          android.clearInputFocus();
+          return;
+        }
+      }
+
+      if (isKeyboardOpen) {
+        const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
+        if (isEditing) {
+          applyUnionTouchRect();
+        } else {
+          applyTouchOverlayRect(hudRectRef.current);
+        }
+      }
+    };
+    window.visualViewport.addEventListener('resize', onViewportResize);
+    return () => window.visualViewport?.removeEventListener('resize', onViewportResize);
+  }, [isKeyboardOpen, mode, selectedStepId, applyUnionTouchRect, applyTouchOverlayRect]);
 
   useEffect(() => {
     const isEditing = mode === AppMode.IDLE && selectedStepId !== null;
+
+    // 鍵盤開著時不用全螢幕（否則鍵盤按鍵被轉發進 WebView → blur → 鍵盤關閉）：
+    // 編輯中改用 HUD＋編輯器聯集，其餘用 HUD 矩形；關閉後恢復全螢幕
+    if (isKeyboardOpen) {
+      if (isEditing) {
+        applyUnionTouchRect();
+      } else {
+        applyTouchOverlayRect(hudRectRef.current);
+      }
+      return;
+    }
 
     if (mode === AppMode.RECORDING || isEditing) {
       if (typeof window !== 'undefined') {
@@ -815,20 +787,9 @@ function App() {
         updateAndroidOverlayRect(0, 0, hudRectRef.current.width, hudRectRef.current.height);
       }
     } else {
-      const { x, y, width, height, isCollapsed } = hudRectRef.current;
-      if (isCollapsed) {
-        const padding = 16;
-        const ox = Math.max(0, x - padding);
-        const oy = Math.max(0, y - padding);
-        const ow = width + padding * 2;
-        const oh = height + padding * 2;
-        updateAndroidOverlayRect(ox, oy, ow, oh);
-      } else {
-        const extraBottom = 24;
-        updateAndroidOverlayRect(x, y, width, height + extraBottom);
-      }
+      applyTouchOverlayRect(hudRectRef.current);
     }
-  }, [mode, selectedStepId]);
+  }, [mode, selectedStepId, isKeyboardOpen, applyTouchOverlayRect, applyUnionTouchRect, updateAndroidOverlayRect]);
 
   return (
     // Updated: Background is transparent and pointer-events passed through
@@ -847,7 +808,7 @@ function App() {
           onStepClick={(id) => setSelectedStepId(id)}
           onStepUpdate={handleStepUpdate}
           selectedStepId={selectedStepId}
-          activePlaybackStepIndex={activePlaybackStepIndex}
+          onDragPointChange={setIsDraggingPoint}
         />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" />
@@ -861,6 +822,7 @@ function App() {
         isScriptLoaded={isScriptLoaded}
         showSaveFeedback={showSaveFeedback}
         sessionStartTime={sessionStartTime}
+        isDraggingPoint={isDraggingPoint}
 
         onRecordToggle={toggleRecord}
         onPlayToggle={togglePlay}
@@ -882,6 +844,9 @@ function App() {
 
         onSelectStep={setSelectedStepId}
         selectedStepId={selectedStepId}
+        completedLoops={completedLoops}
+        activePlaybackStepIndex={activePlaybackStepIndex}
+        playbackStartIndex={playbackStartIndex}
 
         playbackSpeed={playbackSpeed}
         setPlaybackSpeed={setPlaybackSpeed}
@@ -897,10 +862,12 @@ function App() {
           index={selectedStepIndex}
           cumulativeTime={cumulativeTime}
           playbackSpeed={playbackSpeed}
+          isDraggingPoint={isDraggingPoint}
           onUpdate={handleStepUpdate}
           onClose={() => setSelectedStepId(null)}
           onDelete={handleStepDelete}
           onDuplicate={handleStepDuplicate}
+          onRectChange={handleEditorRectChange}
         />
       )}
     </div>

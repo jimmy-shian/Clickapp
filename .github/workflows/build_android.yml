@@ -2,13 +2,8 @@ name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
-      - master
-  pull_request:
-    branches:
-      - main
-      - master
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -73,12 +68,16 @@ jobs:
 
       - name: Rename APK
         run: |
-          APK_PATH="$(find android/app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)"
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Package version: $VERSION"
+          APK_PATH="$(find android/app/build/outputs/apk -type f -name "*.apk" | grep -i "release" | head -n 1)"
           echo "Found APK: $APK_PATH"
-          cp "$APK_PATH" "android/app/build/outputs/apk/omniclick-1.0.1.apk"
+          if [ -n "$APK_PATH" ]; then
+            cp "$APK_PATH" "android/app/build/outputs/apk/omniclick-${VERSION}.apk"
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: omniclick-1.0.1
-          path: android/app/build/outputs/apk/omniclick-1.0.1.apk
+          name: omniclick-1.0.7
+          path: android/app/build/outputs/apk/omniclick-*.apk
