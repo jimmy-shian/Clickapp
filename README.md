@@ -1,37 +1,377 @@
 <div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+
+# OmniClick Designer
+
+**智慧自動點擊器邏輯設計器**
+
+錄製觸控操作 → 視覺化編輯 → 精準回放
+
+適用於手遊自動化、光遇自動彈琴等場景
+
 </div>
 
-# Run and deploy your AI Studio app
+---
 
-This contains everything you need to run your app locally.
+## 專案簡介
 
-View your app in AI Studio: https://ai.studio/apps/drive/1L_zbIA-Umrp3C8Q3jSy_MT0i71z5NqMP
+OmniClick Designer 是執行於 Android 覆蓋層（Overlay WebView）上的自動點擊腳本編輯器。透過無障礙服務（AccessibilityService），可在底層 App 上執行精準的點擊與滑動操作。
 
-## Run Locally
+### 核心流程
 
-**Prerequisites:**  Node.js
+```
+錄製操作 → 編輯／最佳化腳本 → 自動回放
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### 技術棧
 
-## IF need Build for Android (not nessecary)
+- **前端**：React 19 + TypeScript + Vite 6
+- **行動端**：Capacitor 7（Android）
+- **原生橋接**：透過 `window.Android` 與 Java 層通訊
+- **語系**：繁體中文／英文一鍵切換（偏好儲存於本機）
 
-**Prerequisites:**  
-- Android Studio installed  
-- Android SDK configured  
-- Java Development Kit (JDK)  
+---
 
-1. Build and sync for Android:
-   ```bash
-   npm run build
-   npx cap sync
-   npx cap open android
-   ```
-2. In Android Studio, you can:
-   - Run the app on an emulator or connected device
-   - Build a signed APK/AAB for distribution
-   - Modify native Android settings if needed
+## 應用模式
+
+| 模式 | 說明 |
+|------|------|
+| 閒置（IDLE） | 預設狀態，可編輯腳本、管理檔案 |
+| 錄製（RECORDING） | 觸控層切為全螢幕，擷取點擊／滑動 |
+| 播放（PLAYING） | 依時間軸自動執行手勢 |
+| 編輯（EDITING） | 點選任一步驟後進入，可改座標、時間與參數 |
+
+---
+
+## 功能一覽
+
+### 錄製
+
+| 功能 | 說明 |
+|------|------|
+| 點擊錄製 | 記錄觸控座標與時間間隔 |
+| 滑動錄製 | 記錄起點、終點、滑動時長 |
+| 錄製穿透 | 邊錄邊在底層 App 執行原生手勢，即時看到效果 |
+| 智慧去重 | 同一位置連續快點（<12px、<150ms）自動合併 |
+| 自動整併 | 停止錄製時將連點轉為「重複次數＋平均間隔」 |
+| 自動儲存 | 停止錄製後腳本自動存入本機 |
+
+### 播放
+
+| 功能 | 說明 |
+|------|------|
+| 精準回放 | 依錄製時間軸逐步執行 |
+| 速度調節 | 0.1x～3.0x 滑桿，所有時間等比縮放 |
+| 指定起點 | 點選某步驟後再按播放，從該步開始 |
+| 循環播放 | 支援無限循環或指定次數（達標自動停止） |
+| 進度顯示 | 即時顯示進度百分比、目前步驟、下一步倒數 |
+| 最小化膠囊 | 縮小後顯示步數／循環進度／倒數與停止鈕 |
+
+### 步驟編輯
+
+點選畫布上的步驟標記即彈出編輯面板：
+
+- **類型切換**：點擊／滑動／雙擊／長按
+- **座標修改**：數字輸入或直接在畫布上拖曳標記點
+- **觸發時刻**：支援 `MM:SS.mmm` 或純秒數輸入，自動反算延遲
+- **重複設定**：次數（repeat）＋間隔（repeatInterval）
+- **滑動參數**：終點座標、滑動時間（預設 300ms，最小 50ms）
+- **複製／刪除**：一鍵複製到下一步之後，或從腳本移除
+- **面板可拖曳**：編輯面板本身可拖到不擋畫面的位置
+
+### 畫布視覺化
+
+- 步驟標記點（圓形＋編號）
+- 步驟連接線（藍色虛線折線，顯示操作路徑）
+- 滑動箭頭（橙色帶方向箭頭：起點 → 終點）
+- 選取高亮（藍色實心＋黃色連線）
+- 重複角標（`xN` 琥珀色標記）
+- 錄製模式下滑鼠呈十字準星
+
+### 時間軸
+
+內嵌於 HUD 編輯檢視下方：
+
+- 以 Canvas 繪製各步驟在時間線上的分佈點
+- 已執行顯示藍色、下一步顯示琥珀色大點、未執行顯示灰色
+- 藍色填充條顯示目前播放進度
+- 點選時間軸任意位置，自動跳至最近的步驟並選取（列表同步捲動）
+- 顯示 `∞ 無限循環` 或 `循環 N／M 次`
+
+### 檔案管理
+
+**本機儲存（localStorage）**
+- 新增、儲存、載入、刪除腳本
+- 腳本列表依更新時間倒序，顯示名稱、更新日期、步數
+
+**匯入／匯出（JSON）**
+- 匯出為 `.json` 檔；Android 環境優先走原生儲存流程，瀏覽器則降級為下載
+- 從 `.json` 檔匯入；Android 環境使用原生檔案選擇器
+
+### 光遇琴譜轉換器
+
+將《光遇》樂譜自動轉為可播放的點擊腳本：
+
+1. **樂譜來源**（TXT／JSON）：含 `songNotes` 陣列（`key`＋`time`）
+2. **按鍵佈局腳本**（JSON）：至少 15 個步驟的座標（對應 Key1～Key15）
+3. **一鍵產生**：自動對映音符 → 座標 → 點擊步驟序列，轉換成功後自動儲存並載入
+
+### 介面特性
+
+| 特性 | 說明 |
+|------|------|
+| 可拖曳 HUD | 支援滑鼠與觸控拖曳，自動限制在視窗內 |
+| 可調尺寸 | 右下角把手調整，最小 250x200px |
+| 最小化模式 | 錄製／播放開始時自動縮為膠囊，避免遮擋操作區 |
+| 中英切換 | HUD 標題列一鍵切換，偏好寫入 `omniclick_lang` |
+| 鍵盤穿透 | 輸入時觸控層自動縮至鍵盤上方，不干擾輸入法 |
+
+### 效能最佳化
+
+- 實色背景，不使用 `backdrop-filter: blur`，降低 GPU 負載與發熱
+- 不使用過場動畫，並遵循系統「減少動態效果」設定
+- HUD 矩形同步 200ms 節流＋拖尾補送，避免高頻 IPC
+- 播放時 UI 更新限頻至 250ms
+- 步驟列表、`useMemo` 快取、拖曳時 `requestAnimationFrame` 合併渲染
+
+---
+
+## 使用教學
+
+### 首次設定（Android）
+
+1. 安裝並開啟 App
+2. 至系統設定開啟本 App 的無障礙權限
+3. 返回 App，懸浮 HUD 即覆蓋於其他應用上方
+
+### 錄製腳本
+
+1. 在選單檢視按「新增腳本」
+2. 按「錄製」（HUD 自動縮小）
+3. 在螢幕上點按或滑動（動作會同步穿透到底層 App）
+4. 按停止鈕結束 → 連點自動整併 → 腳本自動儲存
+
+### 回放腳本
+
+1. 載入腳本後按「播放」（HUD 自動縮小為進度膠囊）
+2. 需要時先調整速度滑桿（0.1x～3.0x）或開啟循環、設定次數
+3. 若只想從中段執行：先點選該步驟標記，再按播放
+4. 按膠囊上的停止鈕結束；達到循環次數會自動停止
+
+### 編輯步驟
+
+1. 閒置狀態下點選畫布上的步驟標記（或點時間軸／步驟列表）
+2. 在編輯面板修改類型、座標、觸發時刻、重複次數等
+3. 可直接拖曳標記點微調位置
+4. 完成後關閉面板並按「儲存」
+
+### 匯入／匯出
+
+- **儲存**：編輯檢視按「儲存」寫入本機
+- **匯出**：按「匯出」產生 `.json` 檔
+- **匯入**：選單檢視按「開啟／匯入」，選擇 `.json` 檔
+- **刪除**：腳本列表按刪除鈕（需二次確認）；「清空」會移除目前腳本全部步驟
+
+### 琴譜轉換
+
+1. 展開「進階功能 → 進階光遇琴譜轉換」
+2. 依序選擇樂譜檔與 15 鍵佈局腳本
+3. 按「轉換並儲存」，成功後直接載入產生之腳本即可播放
+
+---
+
+## 懸浮 HUD 說明
+
+### 展開態
+
+- **標題列**：拖曳移動、語系切換、最小化、返回選單、退出程式
+- **選單檢視**：已儲存腳本列表＋新增／匯入鈕＋琴譜轉換器
+- **編輯檢視**：腳本名稱、狀態、速度滑桿、總時長（閒置時可改）、步數、時間軸、錄製／播放鈕、循環設定、步驟列表、儲存／匯出／清空鈕
+
+### 最小化態（三種）
+
+| 狀態 | 外觀與操作 |
+|------|------------|
+| 播放中 | 膠囊：循環／步數進度、進度條、下一步倒數、停止鈕 |
+| 錄製中 | 紅色圓形：已錄製秒數、停止鈕 |
+| 閒置 | 灰色圓形：點按展開；拖曳超過 3px 不觸發點按 |
+
+---
+
+## 琴譜格式
+
+樂譜檔（JSON）範例：
+
+```json
+{
+  "name": "Song Name",
+  "songNotes": [
+    { "key": "Key1", "time": 0 },
+    { "key": "Key5", "time": 500 },
+    { "key": "Key8", "time": 1000 }
+  ]
+}
+```
+
+限制與行為：
+
+- `key` 格式為 `Key1`～`Key15`，超出佈局範圍的音符會略過
+- 音符依 `time`（毫秒）排序，`delay` 由相鄰音符時間差推算
+- 佈局腳本至少需 15 個步驟（依序對應 Key1～Key15）
+- 產生之腳本總時長為最後音符時間＋1000ms，預設不循環
+
+---
+
+## 資料結構
+
+### ClickStep（點擊步驟）
+
+```typescript
+{
+  id: string;             // UUID
+  x: number;              // 起始 X 座標
+  y: number;              // 起始 Y 座標
+  endX?: number;          // 滑動終點 X（僅 swipe）
+  endY?: number;          // 滑動終點 Y（僅 swipe）
+  swipeDuration?: number; // 滑動時長 ms（預設 300）
+  delay: number;          // 距上一步延遲 ms（執行前等待）
+  type: 'click' | 'double-click' | 'hold' | 'swipe';
+  repeat: number;         // 重複次數（預設 1）
+  repeatInterval: number; // 重複間隔 ms（預設 100）
+  label?: string;         // 選填標籤
+}
+```
+
+### ClickScript（完整腳本）
+
+```typescript
+{
+  metadata: {
+    id: string;
+    name: string;
+    version: string;
+    loop: boolean;      // 是否循環
+    loopCount: number;  // 循環次數（0＝無限）
+    duration: number;   // 總時長 ms（含尾段）
+    createdAt: number;
+    updatedAt: number;
+  };
+  steps: ClickStep[];
+}
+```
+
+---
+
+## 專案結構
+
+```
+Clickapp/
+├── App.tsx                 # 應用入口：模式、錄製／播放、檔案 I/O、觸控層同步
+├── components/
+│   ├── FloatingHUD.tsx     # 主控面板（展開態：選單／編輯檢視）
+│   ├── MinimizedHUD.tsx    # 最小化膠囊（三態）
+│   ├── ClickCanvas.tsx     # 全螢幕透明畫布（錄製＋標記＋拖曳）
+│   ├── StepEditor.tsx      # 步驟編輯面板
+│   ├── PlaybackTimeline.tsx # 時間軸視覺化
+│   └── SafeNumberInput.tsx # 安全數字輸入框
+├── hooks/
+│   ├── useLiveDuration.ts     # 低頻計時
+│   ├── usePlaybackProgress.ts # 播放進度計算
+│   └── useWindowDrag.ts       # 視窗拖曳
+├── services/
+│   ├── scriptStorage.ts    # 本機儲存 CRUD
+│   └── sheetConverter.ts   # 光遇琴譜轉換
+├── utils/
+│   ├── android.ts          # 原生橋接封裝
+│   ├── format.ts           # 時間格式化／解析
+│   ├── geometry.ts         # 幾何計算
+│   ├── i18n.ts             # 國際化（繁中／英文）
+│   ├── input.ts            # 輸入框輔助
+│   └── timeline.ts         # 時間軸計算
+├── types.ts                # TypeScript 型別定義
+└── capacitor.config.ts     # Capacitor 設定（appId：com.jimmyshian.click）
+```
+
+---
+
+## 無障礙與觸控層
+
+App 依賴無障礙服務在底層 App 執行手勢，啟動後需於系統設定授予權限。
+
+| 狀態 | 觸控層行為 |
+|------|------------|
+| 錄製 | 全螢幕（HUD 區域除外），擷取觸控並穿透 |
+| 閒置 | 僅覆蓋 HUD 區域 |
+| 編輯 | 覆蓋 HUD＋編輯器面板聯集 |
+| 鍵盤開啟 | 縮至鍵盤上方，鍵盤區穿透給輸入法 |
+
+---
+
+## 快速開始
+
+### 環境需求
+
+- Node.js 18+
+- npm
+
+### 安裝執行
+
+```bash
+# 複製專案
+git clone <repo-url>
+cd Clickapp
+
+# 安裝依賴
+npm install
+
+# 啟動開發伺服器
+npm run dev
+```
+
+### 建置 Android APK
+
+**前置條件**：Android Studio、Android SDK、JDK
+
+```bash
+npm run build
+npx cap sync
+npx cap open android
+```
+
+於 Android Studio 可：
+
+- 執行到模擬器或實機
+- 建置簽名 APK／AAB 發佈
+- 修改原生 Android 設定
+
+---
+
+## 常見問題
+
+| 問題 | 說明 |
+|------|------|
+| 錄了卻沒反應 | 確認無障礙權限已開啟，且目標 App 未擋懸浮窗 |
+| 播放位置偏移 | 不同裝置解析度／DPR 差異所致，請在該裝置重錄或微調座標 |
+| 鍵盤一彈就收起 | 觸控層避讓機制異常時，先關閉編輯面板再輸入 |
+| 匯入顯示無效檔案 | 檢查是否為本 App 匯出的 `.json`，且含 `metadata`＋`steps` |
+| 琴譜轉換失敗 | 確認樂譜含 `songNotes`、佈局檔至少 15 步、`key` 為 Key1～Key15 |
+| 瀏覽器預覽無手勢 | `window.Android` 僅存在於 overlay WebView，瀏覽器僅供 UI 預覽 |
+
+---
+
+## 版本資訊
+
+- 目前版本：1.0.7（見 `package.json`）
+- App ID：`com.jimmyshian.click`
+- 腳本儲存：瀏覽器 `localStorage`
+
+---
+
+## 授權
+
+本專案採用自訂授權，完整條款見 [`LICENSE.md`](LICENSE.md)：
+
+- ✅ 允許非商業重製、修改與散布（含改作）
+- ✅ 散布時必須標示原作者（jimmy）並保留授權文件
+- ⚠️ 商業使用須事先取得書面授權，並依約分潤
+
+商用授權洽詢：jimmy910824@gmail.com
