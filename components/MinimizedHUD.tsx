@@ -1,5 +1,5 @@
 import React from 'react';
-import { Maximize2, Square } from 'lucide-react';
+import { Maximize2, Square, Play } from 'lucide-react';
 import { getCollapsedSize } from '../utils/geometry';
 import { AppMode } from '../types';
 import { useTranslation } from '../utils/i18n';
@@ -21,14 +21,20 @@ interface MinimizedHUDProps {
   draggedRef: { current: boolean };
   /** 畫布拖曳點位中，半透明透視底層遊戲 */
   isDraggingPoint?: boolean;
+  /** 是否有已錄製/已載入步驟 */
+  hasSteps?: boolean;
+  /** 當前選取的步驟 ID */
+  selectedStepId?: string | null;
   onExpand: () => void;
+  /** 縮小狀態下直接觸發播放 */
+  onPlay?: () => void;
   /** 停止播放/錄影（不展開） */
   onStopActive: () => void;
   onMouseDown: (e: React.MouseEvent) => void;
   onTouchStart: (e: React.TouchEvent) => void;
 }
 
-/** 縮小 HUD（省電：無動畫、無模糊；播放時顯示已執行次數 + 進度）
+/** 縮小 HUD（省電：無動畫、無模糊；播放時顯示已執行次數 + 進度；閒置時提供播放/展開雙按鈕）
  * 實際尺寸必須與 utils/geometry.getCollapsedSize 一致。
  */
 export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
@@ -40,14 +46,17 @@ export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
   elapsedSec = 0,
   draggedRef,
   isDraggingPoint = false,
+  hasSteps = false,
+  selectedStepId = null,
   onExpand,
+  onPlay,
   onStopActive,
   onMouseDown,
   onTouchStart,
 }) => {
   const { t } = useTranslation();
   const modeForSize = status === 'playing' ? AppMode.PLAYING : status === 'recording' ? AppMode.RECORDING : AppMode.IDLE;
-  const { width, height } = getCollapsedSize(modeForSize);
+  const { width, height } = getCollapsedSize(modeForSize, hasSteps);
   const boxStyle: React.CSSProperties = {
     left: position.x,
     top: position.y,
@@ -115,6 +124,42 @@ export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
     );
   }
 
+  // IDLE status
+  if (hasSteps) {
+    return (
+      <div
+        className={`fixed z-50 rounded-full flex items-center justify-between px-1.5 pointer-events-auto bg-gray-800 transition-opacity duration-150 ${dragOpacityClass}`}
+        style={{ ...boxStyle, border: '1px solid rgba(255,255,255,0.18)' }}
+        onMouseDown={onMouseDown}
+        onTouchStart={onTouchStart}
+      >
+        {/* Play button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!draggedRef.current && onPlay) onPlay();
+          }}
+          className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition-transform text-white shrink-0 shadow-sm"
+          title={selectedStepId ? t('playFromSelected') : t('play')}
+        >
+          <Play size={14} fill="white" className="text-white ml-0.5" />
+        </button>
+
+        {/* Expand button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!draggedRef.current) onExpand();
+          }}
+          className="w-8 h-8 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 active:scale-95 transition-transform text-gray-200 shrink-0"
+          title={t('expand')}
+        >
+          <Maximize2 size={16} className="text-white" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`fixed z-50 rounded-full flex items-center justify-center cursor-pointer pointer-events-auto bg-gray-800 transition-opacity duration-150 ${dragOpacityClass}`}
@@ -124,6 +169,7 @@ export const MinimizedHUD: React.FC<MinimizedHUDProps> = ({
       onClick={() => {
         if (!draggedRef.current) onExpand();
       }}
+      title={t('expand')}
     >
       <Maximize2 size={20} className="text-white" />
     </div>

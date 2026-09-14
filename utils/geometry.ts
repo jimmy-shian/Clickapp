@@ -4,12 +4,14 @@ import { AppMode } from '../types';
 export const COLLAPSED_SIZE = {
   playing: { width: 264, height: 54 },
   recording: { width: 64, height: 48 },
+  idleWithSteps: { width: 96, height: 48 },
   idle: { width: 48, height: 48 },
 } as const;
 
-export function getCollapsedSize(mode: AppMode): { width: number; height: number } {
+export function getCollapsedSize(mode: AppMode, hasSteps: boolean = true): { width: number; height: number } {
   if (mode === AppMode.PLAYING) return { ...COLLAPSED_SIZE.playing };
   if (mode === AppMode.RECORDING) return { ...COLLAPSED_SIZE.recording };
+  if (hasSteps) return { ...COLLAPSED_SIZE.idleWithSteps };
   return { ...COLLAPSED_SIZE.idle };
 }
 

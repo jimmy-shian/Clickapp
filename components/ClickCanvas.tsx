@@ -322,14 +322,19 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
             <div
               onMouseDown={(e) => handleStepMouseDown(e, step)}
               onTouchStart={(e) => handleStepTouchStart(e, step)}
-              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white z-10 select-none pointer-events-auto
-                ${isSelected ? 'bg-blue-600 border-white z-20' : isSwipe ? 'bg-orange-500/40 border-orange-400' : 'bg-blue-500/30 border-blue-400'}
+              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white z-10 select-none pointer-events-auto transition-all duration-200
+                ${isSelected
+                  ? 'bg-blue-600 border-amber-400 ring-4 ring-amber-400/50 scale-125 z-30 font-bold'
+                  : isSwipe
+                    ? 'bg-orange-500/40 border-orange-400'
+                    : 'bg-blue-500/30 border-blue-400'}
                 ${mode === AppMode.IDLE ? 'cursor-grab active:cursor-grabbing' : ''}
               `}
               style={{
                 left: posX,
                 top: posY,
-                borderColor: isSelected ? '#fbbf24' : undefined
+                borderColor: isSelected ? '#fbbf24' : undefined,
+                boxShadow: isSelected ? '0 0 12px rgba(251, 191, 36, 0.85)' : undefined,
               }}
             >
               {index + 1}

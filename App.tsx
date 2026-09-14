@@ -427,7 +427,7 @@ function App() {
     // completedLoops 保留，供展開版時間軸查看本次共執行幾次；下次播放開始時重置
   }, []);
 
-  const playStep = useCallback((index: number, subRepeatIndex: number = 0) => {
+  const playStep = useCallback((index: number, subRepeatIndex: number = 0, isInitialJumpStep: boolean = false) => {
     if (!isPlayingRef.current) return;
     const speed = playbackSpeedRef.current;
 
@@ -455,7 +455,7 @@ function App() {
           playbackTimeoutRef.current = window.setTimeout(() => {
             setSessionStartTime(Date.now()); // Reset timer for visual loop
             setPlaybackStartIndex(0); // 新一輪從頭開始，顯示基準同步歸零
-            playStep(0, 0);
+            playStep(0, 0, false);
           }, tailDelay);
         }
       } else {
@@ -467,14 +467,17 @@ function App() {
     }
 
     const step = script.steps[index];
-    const delay = (subRepeatIndex === 0 ? step.delay : step.repeatInterval) / speed;
+    // 若是從指定點跳轉開始播放（起始點），第一下立即執行無須倒數等待前一步間隔
+    const delay = isInitialJumpStep
+      ? 0
+      : (subRepeatIndex === 0 ? step.delay : step.repeatInterval) / speed;
 
     playbackTimeoutRef.current = window.setTimeout(() => {
       if (!isPlayingRef.current) return;
 
-      // 視覺節流至 ~4Hz（>=250ms）或尾步更新，解耦手勢 dispatch 與 React 畫面重繪
+      // 視覺節流至 ~4Hz（>=250ms）或首步/尾步更新，解耦手勢 dispatch 與 React 畫面重繪
       const nowUi = Date.now();
-      if (nowUi - lastPlaybackUiUpdateRef.current >= 250 || index === script.steps.length - 1) {
+      if (nowUi - lastPlaybackUiUpdateRef.current >= 250 || index === script.steps.length - 1 || isInitialJumpStep) {
         lastPlaybackUiUpdateRef.current = nowUi;
         setActivePlaybackStepIndex(index);
       }
@@ -503,25 +506,30 @@ function App() {
 
       // Schedule Next
       if (step.repeat > 1 && subRepeatIndex < step.repeat - 1) {
-        playStep(index, subRepeatIndex + 1);
+        playStep(index, subRepeatIndex + 1, false);
       } else {
-        playStep(index + 1, 0);
+        playStep(index + 1, 0, false);
       }
     }, delay);
 
   }, [script.steps, script.metadata.loop, script.metadata.loopCount, script.metadata.duration, stopPlayback]);
 
-  const togglePlay = () => {
+  const togglePlay = (fromStepId?: string | null) => {
     if (mode === AppMode.PLAYING) {
       stopPlayback();
     } else {
       if (script.steps.length === 0) return;
 
       // Determine start index: if a step is selected, start from that step
+      const targetStepId = typeof fromStepId === 'string' ? fromStepId : selectedStepId;
       let startIndex = 0;
-      if (selectedStepId) {
-        const idx = script.steps.findIndex(s => s.id === selectedStepId);
-        if (idx >= 0) startIndex = idx;
+      let isJump = false;
+      if (targetStepId) {
+        const idx = script.steps.findIndex(s => s.id === targetStepId);
+        if (idx >= 0) {
+          startIndex = idx;
+          if (idx > 0) isJump = true;
+        }
       }
 
       setMode(AppMode.PLAYING);
@@ -532,8 +540,8 @@ function App() {
       setPlaybackStartIndex(startIndex);
       setSessionStartTime(Date.now());
 
-      // Start the chain from the determined index
-      playStep(startIndex, 0);
+      // Start the chain from the determined index (若從中途點播放則首步直接觸發)
+      playStep(startIndex, 0, isJump);
     }
   };
 
@@ -568,15 +576,15 @@ function App() {
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
-        const steps = json.steps.map((s: any) => ({
+        const steps = (json.steps || []).map((s: any) => ({
           ...s,
           repeat: s.repeat || 1,
           repeatInterval: s.repeatInterval || 100
-        }))
+        }));
 
         const metadata = {
           ...json.metadata,
-          id: json.metadata.id || uuidv4(),
+          id: json.metadata?.id || uuidv4(),
           updatedAt: Date.now()
         };
 
@@ -584,7 +592,8 @@ function App() {
         setIsScriptLoaded(true);
         setMode(AppMode.IDLE);
       } catch (err) {
-        alert("Invalid script file");
+        console.error("Failed to parse JSON", err);
+        alert(t('invalidScript'));
       }
     };
     reader.readAsText(file);
@@ -609,22 +618,26 @@ function App() {
     }
   }
 
-  const handleStepDuplicate = () => {
-    if (!selectedStepId) return;
+  const handleStepDuplicate = (targetStepId?: string) => {
+    const stepIdToDuplicate = typeof targetStepId === 'string' ? targetStepId : selectedStepId;
+    if (!stepIdToDuplicate) return;
+    let newStepId = '';
     setScript(prev => {
-      const idx = prev.steps.findIndex(s => s.id === selectedStepId);
+      const idx = prev.steps.findIndex(s => s.id === stepIdToDuplicate);
       if (idx < 0) return prev;
       const original = prev.steps[idx];
+      newStepId = uuidv4();
       const clone: ClickStep = {
         ...original,
-        id: uuidv4(),
-        // Keep same delay as original so timeline shifts correctly
-        // e.g. A(3s) B(2s) → A(3s) A'(3s) B(2s)
+        id: newStepId,
       };
       const newSteps = [...prev.steps];
       newSteps.splice(idx + 1, 0, clone);
       return { ...prev, steps: newSteps };
     });
+    if (newStepId) {
+      setSelectedStepId(newStepId);
+    }
   };
 
   // Calculate cumulative time for the selected step to pass to editor if needed (memoized to avoid O(n) per second tick)
@@ -862,7 +875,11 @@ function App() {
         setLoop={(loop) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loop } }))}
         setLoopCount={(loopCount) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, loopCount } }))}
         setScriptName={(name) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, name } }))}
-        setScriptDuration={(durationMs) => setScript(prev => ({ ...prev, metadata: { ...prev.metadata, duration: durationMs } }))}
+        setScriptDuration={(durationMs) => setScript(prev => {
+          // 最低 clamp 到全部步驟耗時（含 repeat 展開）＝ 最後一步觸發時刻，避免尾段被裁掉
+          const minBase = getTotalStepsDuration(prev.steps);
+          return { ...prev, metadata: { ...prev.metadata, duration: Math.max(minBase, Math.max(0, durationMs)) } };
+        })}
 
         onSelectStep={setSelectedStepId}
         selectedStepId={selectedStepId}
@@ -889,6 +906,7 @@ function App() {
           onClose={() => setSelectedStepId(null)}
           onDelete={handleStepDelete}
           onDuplicate={handleStepDuplicate}
+          onPlayFromHere={() => togglePlay(selectedStep.id)}
           onRectChange={handleEditorRectChange}
         />
       )}

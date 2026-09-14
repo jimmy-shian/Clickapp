@@ -78,6 +78,8 @@ interface EditableDurationDisplayProps {
   /** 顯示用總長（已除速 ms） */
   totalDuration: number;
   playbackSpeed: number;
+  /** 最低允許 base ms（未除速）＝ 全部步驟耗時（含 repeat 展開），避免尾段被裁掉 */
+  minBaseMs: number;
   /** commit 回傳 base ms（未除速），寫入 metadata.duration */
   onCommit: (baseMs: number) => void;
 }
@@ -86,10 +88,13 @@ interface EditableDurationDisplayProps {
 const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.memo(({
   totalDuration,
   playbackSpeed,
+  minBaseMs,
   onCommit,
 }) => {
   const [localStr, setLocalStr] = useState('');
   const isFocusedRef = useRef(false);
+  const safeSpeed = playbackSpeed > 0 ? playbackSpeed : 1;
+  const minDisplay = minBaseMs / safeSpeed;
 
   // 非聚焦時同步外部值（例如載入腳本、步驟編輯導致總長變化）
   useEffect(() => {
@@ -104,9 +109,9 @@ const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.me
     const raw = e?.target?.value ?? localStr;
     const newMs = parseFormattedTime(raw);
     if (newMs !== null) {
-      const baseMs = Math.max(0, Math.round(newMs * playbackSpeed));
+      const baseMs = Math.max(minBaseMs, Math.round(newMs * safeSpeed));
       onCommit(baseMs);
-      setLocalStr(formatTime(baseMs / playbackSpeed));
+      setLocalStr(formatTime(baseMs / safeSpeed));
     } else {
       // 無效輸入：還原顯示值
       setLocalStr(formatTime(totalDuration));
@@ -138,6 +143,7 @@ const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.me
       }}
       onTouchStart={stopTouchPropagation}
       aria-label="總時長"
+      title={`最低 ${formatTime(minDisplay)}（最後一步含重複觸發時刻）`}
       className="w-full bg-transparent text-right text-lg font-mono text-white font-semibold tracking-widest outline-none border-b border-transparent focus:border-blue-500 select-text"
       placeholder="00:00.000"
       style={{ touchAction: 'manipulation' }}
@@ -312,7 +318,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     () => getTotalStepsDuration(script.steps),
     [script.steps]
   );
-  const totalDisplayDuration = Math.max(script.metadata.duration || 0, totalStepsDuration) / playbackSpeed;
+  const safeSpeedForTotal = playbackSpeed > 0 ? playbackSpeed : 1;
+  const totalDisplayDuration = Math.max(script.metadata.duration || 0, totalStepsDuration) / safeSpeedForTotal;
 
   // 步驟列表顯示用累計時刻（取代 render 中 mutate 變數）
   const cumulative = useMemo(() => getStepCumulativeTimes(script.steps), [script.steps]);
@@ -346,6 +353,57 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
     setIsAndroidBridge(isAndroidOverlay());
   }, []);
+
+  // 直/橫旋轉自適應：視窗尺寸變化時把 HUD 縮放＋位置 clamp 回可視區內。
+  // 之前只有 mount 時算一次，橫向開 App（寬 700+）轉直向（寬 360）會整片超出畫面無法操作。
+  // 這裡只做「縮小以適應」，不自動放大，保留使用者手動調整的尺寸。
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onViewportChange = () => {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      setSize(prev => {
+        const maxW = Math.max(0, vw - 16);
+        const maxH = Math.max(0, vh - 16);
+        const minW = Math.min(250, maxW);
+        const minH = Math.min(200, maxH);
+        const w = Math.min(Math.max(prev.width, minW), Math.max(minW, maxW));
+        const h = Math.min(Math.max(prev.height, minH), Math.max(minH, maxH));
+        if (w === prev.width && h === prev.height) return prev;
+        return { width: Math.round(w), height: Math.round(h) };
+      });
+      // 先保證 header（48px）一定在畫面內可拖曳；完整尺寸的精確 clamp 由下一個 [size] effect 補上
+      setPosition(prev => {
+        const maxX = Math.max(0, vw - 48);
+        const maxY = Math.max(0, vh - 48);
+        const nx = Math.min(Math.max(0, prev.x), maxX);
+        const ny = Math.min(Math.max(0, prev.y), maxY);
+        if (nx === prev.x && ny === prev.y) return prev;
+        return { x: nx, y: ny };
+      });
+    };
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('orientationchange', onViewportChange);
+    window.visualViewport?.addEventListener('resize', onViewportChange);
+    return () => {
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('orientationchange', onViewportChange);
+      window.visualViewport?.removeEventListener('resize', onViewportChange);
+    };
+  }, []);
+
+  // 尺寸變化後再用完整寬高精確 clamp 位置，避免縮放後右/下緣仍在畫面外
+  useEffect(() => {
+    setPosition(prev => {
+      const hasSteps = script.steps.length > 0;
+      const currentW = isCollapsed ? getCollapsedSize(mode, hasSteps).width : size.width;
+      const currentH = isCollapsed ? getCollapsedSize(mode, hasSteps).height : size.height;
+      const clamped = clampToViewport(prev.x, prev.y, currentW, currentH);
+      if (clamped.x === prev.x && clamped.y === prev.y) return prev;
+      return clamped;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [size, isCollapsed, mode, script.steps.length]);
 
   // Register global callback for native FilePickerActivity -> JS bridge
   useEffect(() => {
@@ -384,7 +442,8 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     let currentWidth = size.width;
     let currentHeight = size.height;
     if (isCollapsed) {
-      const collapsed = getCollapsedSize(mode);
+      const hasSteps = script.steps.length > 0;
+      const collapsed = getCollapsedSize(mode, hasSteps);
       currentWidth = collapsed.width;
       currentHeight = collapsed.height;
     }
@@ -453,8 +512,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     if (isDragging) {
       const newX = clientX - dragStart.current.x;
       const newY = clientY - dragStart.current.y;
-      const currentWidth = isCollapsed ? getCollapsedSize(mode).width : size.width;
-      const currentHeight = isCollapsed ? getCollapsedSize(mode).height : size.height;
+      const hasSteps = script.steps.length > 0;
+      const currentWidth = isCollapsed ? getCollapsedSize(mode, hasSteps).width : size.width;
+      const currentHeight = isCollapsed ? getCollapsedSize(mode, hasSteps).height : size.height;
       const clamped = clampToViewport(newX, newY, currentWidth, currentHeight);
 
       if (!hasMovedRef.current) {
@@ -511,7 +571,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       : (mode === AppMode.PLAYING ? Math.min(Math.max(0, playbackStartIndex), Math.max(0, script.steps.length - 1)) : null);
     const title = mode === AppMode.PLAYING
       ? (script.metadata.loop
-        ? (isInfiniteLoop ? `∞ ${t('infiniteLoopStatus', { count: completedLoops })}` : `${completedLoops}/${script.metadata.loopCount} ${t('times')}`)
+        ? (isInfiniteLoop ? t('infiniteLoopStatus', { count: completedLoops }) : t('loopStatus', { current: completedLoops, total: script.metadata.loopCount }))
         : (curIdx !== null ? `${t('steps')} ${curIdx + 1} / ${script.steps.length}` : `${t('steps')} - / ${script.steps.length}`))
       : '';
     // 縮小 pill 只顯示下一步＋剩餘整秒（拿掉已執行步驟/模式，再長也不會被省略號裁掉）
@@ -530,7 +590,10 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         elapsedSec={Math.floor(liveDuration / 1000)}
         draggedRef={hasMovedRef}
         isDraggingPoint={isDraggingPoint}
+        hasSteps={script.steps.length > 0}
+        selectedStepId={selectedStepId}
         onExpand={() => setIsCollapsed(false)}
+        onPlay={onPlayToggle}
         onStopActive={mode === AppMode.PLAYING ? onPlayToggle : onRecordToggle}
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
@@ -797,6 +860,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                     <EditableDurationDisplay
                       totalDuration={totalDisplayDuration}
                       playbackSpeed={playbackSpeed}
+                      minBaseMs={totalStepsDuration}
                       onCommit={setScriptDuration ?? (() => {})}
                     />
                   )}

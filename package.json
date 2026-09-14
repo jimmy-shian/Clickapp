@@ -1,7 +1,7 @@
 {
   "name": "omniclick-designer",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "scripts": {

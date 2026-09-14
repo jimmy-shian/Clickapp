@@ -70,6 +70,7 @@ export const translations = {
     repeatInterval: '重複間隔 (ms)',
     delayFromPrev: '與上一步間隔 (ms)',
     duplicate: '複製',
+    playFromHere: '從此點播放',
 
     // Timeline & Progress
     timeline: '時間軸',
@@ -80,6 +81,8 @@ export const translations = {
 
     // Minimized HUD
     minimizedStopTitle: '停止播放（點圓圈外展開則同樣停止）',
+    playFromSelected: '從選定點播放',
+    expand: '展開',
   },
   en: {
     // General / Common
@@ -148,6 +151,7 @@ export const translations = {
     repeatInterval: 'Repeat Interval (ms)',
     delayFromPrev: 'Delay from previous (ms)',
     duplicate: 'Duplicate',
+    playFromHere: 'Play from here',
 
     // Timeline & Progress
     timeline: 'Timeline',
@@ -158,6 +162,8 @@ export const translations = {
 
     // Minimized HUD
     minimizedStopTitle: 'Stop playback (tap outside to expand and stop)',
+    playFromSelected: 'Play from selected',
+    expand: 'Expand',
   },
 } as const;
 
