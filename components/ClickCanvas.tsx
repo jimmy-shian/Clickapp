@@ -322,7 +322,11 @@ export const ClickCanvas: React.FC<ClickCanvasProps> = ({
             <div
               onMouseDown={(e) => handleStepMouseDown(e, step)}
               onTouchStart={(e) => handleStepTouchStart(e, step)}
-              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white z-10 select-none pointer-events-auto transition-all duration-200
+              className={`absolute flex items-center justify-center w-6 h-6 -ml-3 -mt-3 rounded-full border text-[10px] text-white z-10 select-none pointer-events-auto ${
+                draggingStepId === step.id
+                  ? 'transition-none'
+                  : 'transition-[border-color,box-shadow,transform] duration-150'
+              }
                 ${isSelected
                   ? 'bg-blue-600 border-amber-400 ring-4 ring-amber-400/50 scale-125 z-30 font-bold'
                   : isSwipe

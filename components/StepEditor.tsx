@@ -114,8 +114,9 @@ export const StepEditor: React.FC<StepEditorProps> = ({
   }, []);
 
   // 回報面板矩形給 App（鍵盤開啟時觸控層改用 HUD＋面板聯集）；
-  // key 去重：打字等重繪不重送，只有位置/尺寸變化才回報
+  // key 去重：打字等重繪不重送，只有位置/尺寸變化才回報；拖曳中略過避免重複計算
   useEffect(() => {
+    if (isDraggingPanel) return;
     if (!onRectChange) return;
     const el = rootRef.current;
     if (!el) return;
@@ -124,7 +125,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({
     if (lastRectKeyRef.current === key) return;
     lastRectKeyRef.current = key;
     onRectChange(Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height));
-  }, [panelPos, step.type, step.id, viewport.w, viewport.h, onRectChange]);
+  }, [panelPos, isDraggingPanel, step.type, step.id, viewport.w, viewport.h, onRectChange]);
 
   const handleChange = (field: keyof ClickStep, value: any) => {
     onUpdate({ ...step, [field]: value });
@@ -159,6 +160,9 @@ export const StepEditor: React.FC<StepEditorProps> = ({
     }
   };
 
+  const panelDragRafRef = useRef<number | null>(null);
+  const pendingPanelPosRef = useRef<{ left: number; top: number } | null>(null);
+
   const startPanelDrag = (clientX: number, clientY: number) => {
     if (!panelPos) return;
     setIsDraggingPanel(true);
@@ -181,7 +185,7 @@ export const StepEditor: React.FC<StepEditorProps> = ({
     startPanelDrag(touch.clientX, touch.clientY);
   };
 
-  // 面板拖曳：mouse / touch 共用全域監聽（hooks/useWindowDrag）
+  // 面板拖曳：mouse / touch 共用全域監聽（hooks/useWindowDrag），RAF 節流降低無謂重繪
   useWindowDrag(isDraggingPanel, (e) => {
     const { clientX, clientY } = getDragClientXY(e);
     const dx = clientX - dragStartRef.current.x;
@@ -197,8 +201,24 @@ export const StepEditor: React.FC<StepEditorProps> = ({
     const maxTop = Math.max(10, vh - panelH - 10);
     left = Math.min(Math.max(10, left), maxLeft);
     top = Math.min(Math.max(10, top), maxTop);
-    setPanelPos({ left, top });
+
+    pendingPanelPosRef.current = { left, top };
+    if (!panelDragRafRef.current) {
+      panelDragRafRef.current = requestAnimationFrame(() => {
+        if (pendingPanelPosRef.current) {
+          setPanelPos(pendingPanelPosRef.current);
+        }
+        panelDragRafRef.current = null;
+      });
+    }
   }, () => {
+    if (panelDragRafRef.current) {
+      cancelAnimationFrame(panelDragRafRef.current);
+      panelDragRafRef.current = null;
+    }
+    if (pendingPanelPosRef.current) {
+      setPanelPos(pendingPanelPosRef.current);
+    }
     setIsDraggingPanel(false);
   });
 
@@ -215,7 +235,9 @@ export const StepEditor: React.FC<StepEditorProps> = ({
   return (
     <div
       ref={rootRef}
-      className={`fixed z-50 rounded-xl text-white p-4 border pointer-events-auto overflow-y-auto overflow-x-hidden transition-all duration-200 ${
+      className={`fixed z-50 rounded-xl text-white p-4 border pointer-events-auto overflow-y-auto overflow-x-hidden ${
+        isDraggingPanel ? 'transition-none' : 'transition-[opacity,border-color,box-shadow] duration-150'
+      } ${
         isDraggingPoint ? 'opacity-20 pointer-events-none' : 'opacity-95'
       } ${
         isJustSwitched ? 'border-amber-400 ring-2 ring-amber-400/50 shadow-[0_0_15px_rgba(251,191,36,0.3)]' : 'border-blue-500/30'

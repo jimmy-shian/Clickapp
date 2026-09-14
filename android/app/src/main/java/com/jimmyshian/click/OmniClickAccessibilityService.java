@@ -140,7 +140,7 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         webView = new WebView(this);
         // 最終行為：WebView 本身完全透明，讓底下 App 可見
         webView.setBackgroundColor(0x00000000);
-        webView.setLayerType(View.LAYER_TYPE_NONE, null);
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         // Configure WebView / asset loader
         WebSettings settings = webView.getSettings();
@@ -199,7 +199,8 @@ public class OmniClickAccessibilityService extends AccessibilityService {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
         );
 
