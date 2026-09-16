@@ -117,8 +117,6 @@ function App() {
   };
 
   const handleDeleteLocal = (id: string) => {
-    if (!window.confirm("Are you sure you want to delete this script?")) return;
-
     deleteScriptById(id);
     loadSavedScriptsList();
 

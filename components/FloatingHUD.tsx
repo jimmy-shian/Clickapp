@@ -289,6 +289,9 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   const [songFile, setSongFile] = useState<File | null>(null);
   const [mapFile, setMapFile] = useState<File | null>(null);
 
+  // Script Delete Confirmation State
+  const [scriptToDelete, setScriptToDelete] = useState<{ id: string; name: string } | null>(null);
+
   // Refs
   const hasMovedRef = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -684,7 +687,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 mb-20">
+            <div className={`flex-1 overflow-y-auto custom-scrollbar -mx-2 px-2 space-y-2 transition-[margin] duration-150 ${isConverterOpen ? 'mb-28' : 'mb-8'}`}>
               {savedScripts.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-40 text-gray-500 text-[12px] text-center border-2 border-dashed border-white/5 rounded-lg">
                   <p>{t('noSavedScripts')}</p>
@@ -694,7 +697,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   <div
                     key={s.id}
                     onClick={() => onLoadLocal(s.id)}
-                    className="group bg-white/5 border border-white/5 rounded-lg p-3 cursor-pointer relative"
+                    className="group bg-white/5 border border-white/5 rounded-lg p-3 cursor-pointer relative hover:bg-white/10 transition-colors"
                   >
                     <div className="flex justify-between items-start">
                       <div className="font-medium text-lg text-gray-200 truncate pr-6">{s.name}</div>
@@ -704,8 +707,12 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                       <span>{s.stepCount} {t('steps')}</span>
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); onDeleteLocal(s.id); }}
-                      className="absolute bottom-2 right-2 text-gray-600 p-1"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setScriptToDelete({ id: s.id, name: s.name });
+                      }}
+                      className="absolute bottom-2 right-2 text-gray-400 hover:text-red-400 hover:bg-red-500/20 p-1.5 rounded transition-all pointer-events-auto"
                       title={t('delete')}
                     >
                       <Trash2 size={14} />
@@ -717,7 +724,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               {/* Fixed File Upload for Mobile: Overlay Input */}
               <div className="relative mt-2 pt-2 border-t border-white/10">
                 <div
-                  className="flex items-center justify-center gap-2 py-2 text-[12px] text-gray-400"
+                  className="flex items-center justify-center gap-2 py-2 text-[12px] text-gray-400 hover:text-gray-200 cursor-pointer transition-colors"
                   onClick={() => {
                     if (isAndroidBridge) openFilePicker('import');
                   }}
@@ -735,64 +742,92 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               </div>
             </div>
 
-            {/* ADVANCED TOOLS SECTION: 進階光遇琴譜轉換 */}
-            <div className="absolute bottom-0 left-0 right-0 bg-[#2d3748] rounded-t-xl border-t border-blue-500/30 overflow-hidden">
+            {/* ADVANCED TOOLS SECTION: 進階光遇琴譜轉換（緊湊設計） */}
+            <div className="absolute bottom-0 left-0 right-0 bg-[#1e293b]/95 backdrop-blur-sm rounded-t-xl border-t border-blue-500/30 overflow-hidden shadow-lg transition-all duration-200">
               {!isConverterOpen ? (
                 <button
+                  type="button"
                   onClick={() => setIsConverterOpen(true)}
-                  className="w-full p-3 flex items-center justify-between text-blue-300"
+                  className="w-full py-1.5 px-3 flex items-center justify-between text-blue-300 hover:text-blue-200 hover:bg-white/5 transition-colors"
                 >
-                  <div className="flex items-center gap-2 text-sm font-semibold">
-                    <ArrowRightLeft size={16} /> {t('sheetConverterTitle')}
+                  <div className="flex items-center gap-1.5 text-xs font-semibold">
+                    <ArrowRightLeft size={13} /> {t('sheetConverterTitle')}
                   </div>
+                  <span className="text-[10px] text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">▲</span>
                 </button>
               ) : (
-                <div className="p-4 bg-gray-800 border-t border-white/10">
-                  <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-sm font-bold text-blue-400 flex items-center gap-2">
-                      <ArrowRightLeft size={16} /> {t('sheetConverterTitle')}
+                <div className="p-2.5 bg-gray-900 border-t border-white/10">
+                  <div className="flex justify-between items-center mb-1.5">
+                    <h3 className="text-xs font-bold text-blue-400 flex items-center gap-1.5">
+                      <ArrowRightLeft size={13} /> {t('sheetConverterTitle')}
                     </h3>
-                    <button onClick={() => setIsConverterOpen(false)} className="text-gray-500 hover:text-white"><Minimize2 size={14} /></button>
+                    <button
+                      type="button"
+                      onClick={() => setIsConverterOpen(false)}
+                      className="text-gray-400 hover:text-white p-0.5 rounded hover:bg-white/10 transition-colors"
+                      title={t('close')}
+                    >
+                      <Minimize2 size={13} />
+                    </button>
                   </div>
 
-                  <div className="space-y-3">
-                    <div className="flex flex-col gap-1 relative">
-                      <label className="text-[10px] text-gray-400 uppercase">{t('songSource')}</label>
-                      <div
-                        className={`flex items-center gap-2 p-2 rounded text-xs border ${songFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}
-                        onClick={() => {
-                          if (isAndroidBridge) openFilePicker('song');
-                        }}
-                      >
-                        <Music size={14} /> {songFile ? songFile.name : t('selectSongFile')}
+                  <div className="space-y-2">
+                    {/* 兩欄並排：樂譜來源與按鍵佈局 */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-0.5 relative">
+                        <label className="text-[9px] text-gray-400 uppercase tracking-wide truncate">{t('songSource')}</label>
+                        <div
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] border cursor-pointer select-none transition-colors ${
+                            songFile ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'bg-black/30 border-gray-700 hover:border-gray-500 text-gray-400'
+                          }`}
+                          onClick={() => {
+                            if (isAndroidBridge) openFilePicker('song');
+                          }}
+                        >
+                          <Music size={12} className="shrink-0" />
+                          <span className="truncate">{songFile ? songFile.name : t('selectSongFile')}</span>
+                        </div>
+                        {!isAndroidBridge && (
+                          <input
+                            type="file"
+                            accept=".txt,.json,.mid,.midi"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => setSongFile(e.target.files?.[0] || null)}
+                          />
+                        )}
                       </div>
-                    </div>
 
-                    <div className="flex flex-col gap-1 relative">
-                      <label className="text-[10px] text-gray-400 uppercase">{t('layoutScript')}</label>
-                      <div
-                        className={`flex items-center gap-2 p-2 rounded text-xs border ${mapFile ? 'bg-green-500/20 border-green-500/50 text-green-200' : 'bg-black/20 border-gray-600 text-gray-400'}`}
-                        onClick={() => {
-                          if (isAndroidBridge) openFilePicker('layout');
-                        }}
-                      >
-                        <FileText size={14} /> {mapFile ? mapFile.name : t('selectLayoutScript')}
+                      <div className="flex flex-col gap-0.5 relative">
+                        <label className="text-[9px] text-gray-400 uppercase tracking-wide truncate">{t('layoutScript')}</label>
+                        <div
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] border cursor-pointer select-none transition-colors ${
+                            mapFile ? 'bg-green-500/15 border-green-500/40 text-green-300' : 'bg-black/30 border-gray-700 hover:border-gray-500 text-gray-400'
+                          }`}
+                          onClick={() => {
+                            if (isAndroidBridge) openFilePicker('layout');
+                          }}
+                        >
+                          <FileText size={12} className="shrink-0" />
+                          <span className="truncate">{mapFile ? mapFile.name : t('selectLayoutScript')}</span>
+                        </div>
+                        {!isAndroidBridge && (
+                          <input
+                            type="file"
+                            accept=".json"
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            onChange={(e) => setMapFile(e.target.files?.[0] || null)}
+                          />
+                        )}
                       </div>
-                      {!isAndroidBridge && (
-                        <input
-                          type="file"
-                          accept=".json"
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                          onChange={(e) => setMapFile(e.target.files?.[0] || null)}
-                        />
-                      )}
                     </div>
 
                     <button
+                      type="button"
                       onClick={handleConverter}
                       disabled={!songFile || !mapFile}
-                      className="w-full py-2 mt-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-xs font-bold"
+                      className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-semibold shadow transition-colors flex items-center justify-center gap-1.5"
                     >
+                      <Check size={12} />
                       {t('convertAndSave')}
                     </button>
                   </div>
@@ -1003,6 +1038,48 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {scriptToDelete && (
+        <div
+          className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 rounded-xl backdrop-blur-[2px] pointer-events-auto"
+          onClick={(e) => { e.stopPropagation(); setScriptToDelete(null); }}
+        >
+          <div
+            className="bg-[#1f2937] border border-white/20 rounded-xl p-4 max-w-[280px] w-full shadow-2xl space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+              <Trash2 size={16} />
+              <span>{t('delete')}</span>
+            </div>
+            <p className="text-xs text-gray-200 leading-relaxed break-words">
+              {t('confirmDelete', { name: scriptToDelete.name })}
+            </p>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setScriptToDelete(null)}
+                className="px-3 py-1.5 rounded text-xs text-gray-300 hover:bg-white/10 transition-colors"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = scriptToDelete.id;
+                  setScriptToDelete(null);
+                  onDeleteLocal(id);
+                }}
+                className="px-3 py-1.5 rounded text-xs bg-red-600 hover:bg-red-500 text-white font-semibold transition-colors flex items-center gap-1 shadow-md shadow-red-950/50 active:scale-95"
+              >
+                <Trash2 size={12} />
+                <span>{t('delete')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Resize Handle */}
       <div

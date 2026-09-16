@@ -18,6 +18,7 @@ import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
@@ -182,6 +183,20 @@ public class OmniClickAccessibilityService extends AccessibilityService {
             public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
                 Log.d(TAG, "JS console: " + consoleMessage.message()
                         + " @" + consoleMessage.sourceId() + ":" + consoleMessage.lineNumber());
+                return true;
+            }
+
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                Log.d(TAG, "JS alert: " + message);
+                result.confirm();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
+                Log.d(TAG, "JS confirm: " + message);
+                result.confirm();
                 return true;
             }
         });
