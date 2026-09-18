@@ -13,6 +13,7 @@ interface TimelineDotsCanvasProps {
   isPlaying: boolean;
   activePlaybackStepIndex: number | null | undefined;
   nextStepIdx: number;
+  startIndex?: number;
   onJumpToStep?: (stepId: string) => void;
 }
 
@@ -24,6 +25,7 @@ const TimelineDotsCanvas: React.FC<TimelineDotsCanvasProps> = React.memo(({
   isPlaying,
   activePlaybackStepIndex,
   nextStepIdx,
+  startIndex = 0,
   onJumpToStep,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -53,8 +55,9 @@ const TimelineDotsCanvas: React.FC<TimelineDotsCanvasProps> = React.memo(({
       const frac = Math.min(1, Math.max(0, tMs / safeSpeed / totalScaled));
       const x = frac * width;
 
-      const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && i <= activePlaybackStepIndex;
-      const isNext = i === nextStepIdx;
+      const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && i >= startIndex && i <= activePlaybackStepIndex;
+      const isNext = isPlaying && i === nextStepIdx;
+      const isSkipped = isPlaying && i < startIndex;
 
       ctx.beginPath();
       if (isNext) {
@@ -63,13 +66,16 @@ const TimelineDotsCanvas: React.FC<TimelineDotsCanvasProps> = React.memo(({
       } else if (isDone) {
         ctx.arc(x, centerY, 3, 0, Math.PI * 2);
         ctx.fillStyle = '#93c5fd'; // blue-300
+      } else if (isSkipped) {
+        ctx.arc(x, centerY, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#374151'; // gray-700（本輪已跳過）
       } else {
         ctx.arc(x, centerY, 2.5, 0, Math.PI * 2);
         ctx.fillStyle = '#6b7280'; // gray-500
       }
       ctx.fill();
     }
-  }, [steps, cumulative, totalScaled, safeSpeed, isPlaying, activePlaybackStepIndex, nextStepIdx]);
+  }, [steps, cumulative, totalScaled, safeSpeed, isPlaying, activePlaybackStepIndex, nextStepIdx, startIndex]);
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!onJumpToStep || steps.length === 0) return;
@@ -121,21 +127,27 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
   onJumpToStep,
 }) => {
   const { t } = useTranslation();
-  const { safeSpeed, totalScaled, progress: pct, nextStepIdx, nextInMs, cumulative } = progress;
+  const { safeSpeed, totalScaled, progress: pct, nextStepIdx, nextInMs, cumulative, openingRemaining } = progress;
   const isPlaying = mode === AppMode.PLAYING;
   const isInfiniteLoop = loop && loopCount === 0;
 
-  // 目前執行中的步驟（首步未觸發前以後備起始步驟顯示，避免誤顯示 #1）
-  const displayIdx = activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined
-    ? activePlaybackStepIndex
-    : (isPlaying ? Math.min(Math.max(0, startIndex), Math.max(0, steps.length - 1)) : null);
+  // 首步未觸發前不顯示「目前步驟」（否則會出現「#3 · → #3」重複）；只顯示下一步
+  const awaitingFirst = isPlaying && (activePlaybackStepIndex === null || activePlaybackStepIndex === undefined);
+  const displayIdx = awaitingFirst
+    ? null
+    : (activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined
+      ? activePlaybackStepIndex
+      : (isPlaying ? Math.min(Math.max(0, startIndex), Math.max(0, steps.length - 1)) : null));
   const curStep = displayIdx !== null && steps[displayIdx] ? steps[displayIdx] : undefined;
   const curLabel = curStep ? `#${displayIdx! + 1} ${stepTypeLabel(curStep.type)}` : '';
 
   const statusText = isPlaying
-    ? (nextStepIdx >= 0
-      ? `${curLabel ? `${curLabel} · ` : ''}→ #${nextStepIdx + 1} · ${(nextInMs / 1000).toFixed(1)}s`
-      : `${curLabel ? `${curLabel} · ` : ''}${t('roundEnding', { pct: Math.round(pct * 100) })}`)
+    ? (openingRemaining > 0 && awaitingFirst
+      // 開場倒數中（從中途開始）：顯示 3-2-1 與目標步驟，進度條維持 0%
+      ? (nextStepIdx >= 0 ? `開場倒數 ${Math.ceil(openingRemaining / 1000)} → #${nextStepIdx + 1}` : `開場倒數 ${Math.ceil(openingRemaining / 1000)}`)
+      : (nextStepIdx >= 0
+        ? `${curLabel ? `${curLabel} · ` : ''}→ #${nextStepIdx + 1} · ${(nextInMs / 1000).toFixed(1)}s`
+        : `${curLabel ? `${curLabel} · ` : ''}${t('roundEnding', { pct: Math.round(pct * 100) })}`))
     : `${t('totalDuration', { duration: formatTime(totalScaled) })}${safeSpeed !== 1 ? ` @${safeSpeed.toFixed(1)}x` : ''}`;
 
   // 點擊進度條空白處：依時間比例找最近的步驟跳轉
@@ -163,8 +175,9 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
         <div className="absolute inset-y-0 left-0 bg-blue-500" style={{ width: `${Math.round((isPlaying ? pct : 0) * 100)}%` }} />
         {totalScaled > 0 && cumulative.map((tMs, idx) => {
           const frac = Math.min(1, Math.max(0, tMs / safeSpeed / totalScaled));
-          const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && idx <= activePlaybackStepIndex;
+          const isDone = isPlaying && activePlaybackStepIndex !== null && activePlaybackStepIndex !== undefined && idx >= startIndex && idx <= activePlaybackStepIndex;
           const isNext = isPlaying && idx === nextStepIdx;
+          const isSkipped = isPlaying && idx < startIndex;
           return (
             <div
               key={steps[idx]?.id || idx}
@@ -173,6 +186,8 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
                   ? 'w-1.5 h-1.5 bg-amber-300 ring-1 ring-amber-400 z-10'
                   : isDone
                   ? 'w-1 h-1 bg-white z-[1]'
+                  : isSkipped
+                  ? 'w-1 h-1 bg-white/20 z-[1]'
                   : 'w-1 h-1 bg-white/60 z-[1]'
               }`}
               style={{ left: `${frac * 100}%` }}
@@ -188,6 +203,7 @@ export const PlaybackTimeline: React.FC<PlaybackTimelineProps> = ({
         isPlaying={isPlaying}
         activePlaybackStepIndex={activePlaybackStepIndex}
         nextStepIdx={nextStepIdx}
+        startIndex={startIndex}
         onJumpToStep={onJumpToStep}
       />
       {loop && (

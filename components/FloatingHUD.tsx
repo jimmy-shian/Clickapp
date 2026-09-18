@@ -157,7 +157,8 @@ const LiveDurationDisplay: React.FC<LiveDurationDisplayProps> = React.memo(({
   totalDuration,
 }) => {
   const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
-  const displayDuration = isTimed ? liveDuration : totalDuration;
+  // 開場倒數期間 live 為負（sessionStart 在未來），顯示箝制為 0
+  const displayDuration = isTimed ? Math.max(0, liveDuration) : totalDuration;
   return (
     <div className="text-lg font-mono text-white font-semibold">
       {formatTime(displayDuration)}
@@ -301,9 +302,10 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   // 步驟列表項目節點（時間軸跳轉時平滑捲動定位）
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
 
-  // 低頻計時：僅縮小 HUD 需要即時秒數，展開狀態用獨立組件隔絕 re-render
+  // 低頻計時：播放/錄影一律每秒 tick 一次（省電防發燙；倒數顯示以秒為單位已足夠）。
+  // 拖曳/編輯走 pointer 事件即時 setState，不經 timer，所以操作跟手度不受影響。
   const isTimed = mode === AppMode.RECORDING || mode === AppMode.PLAYING;
-  const liveDuration = useLiveDuration(sessionStartTime, isTimed && isCollapsed, 1000);
+  const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
 
   // 播放進度 / 下一步倒數（縮小 pill 與展開時間軸共用）
   const progress = usePlaybackProgress({
@@ -577,11 +579,16 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         ? (isInfiniteLoop ? t('infiniteLoopStatus', { count: completedLoops }) : t('loopStatus', { current: completedLoops, total: script.metadata.loopCount }))
         : (curIdx !== null ? `${t('steps')} ${curIdx + 1} / ${script.steps.length}` : `${t('steps')} - / ${script.steps.length}`))
       : '';
-    // 縮小 pill 只顯示下一步＋剩餘整秒（拿掉已執行步驟/模式，再長也不會被省略號裁掉）
+    // 縮小 pill 只顯示下一步＋剩餘秒數（拿掉已執行步驟/模式，再長也不會被省略號裁掉）
+    // 開場倒數中（且首步尚未觸發）優先顯示 3-2-1 與目標步驟
     const sub = mode === AppMode.PLAYING
-      ? (progress.nextStepIdx >= 0
-        ? `→ #${progress.nextStepIdx + 1} · ${Math.round(progress.nextInMs / 1000)}s`
-        : `${t('roundEnding', { pct: Math.round(progress.progress * 100) })}`)
+      ? (progress.openingRemaining > 0 && progress.awaitingFirst
+        ? (progress.nextStepIdx >= 0
+          ? `開場倒數 ${Math.ceil(progress.openingRemaining / 1000)} → #${progress.nextStepIdx + 1}`
+          : `開場倒數 ${Math.ceil(progress.openingRemaining / 1000)}`)
+        : (progress.nextStepIdx >= 0
+          ? `→ #${progress.nextStepIdx + 1} · ${(progress.nextInMs / 1000).toFixed(1)}s`
+          : `${t('roundEnding', { pct: Math.round(progress.progress * 100) })}`))
       : '';
     return (
       <MinimizedHUD
@@ -590,7 +597,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         title={title}
         sub={sub}
         progress={progress.progress}
-        elapsedSec={Math.floor(liveDuration / 1000)}
+        elapsedSec={Math.max(0, Math.floor(liveDuration / 1000))}
         draggedRef={hasMovedRef}
         isDraggingPoint={isDraggingPoint}
         hasSteps={script.steps.length > 0}

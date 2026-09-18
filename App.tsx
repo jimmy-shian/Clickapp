@@ -18,8 +18,11 @@ import {
   subscribeKeyboardOpen,
 } from './utils/android';
 import { withTouchPadding, EXPANDED_EXTRA_BOTTOM, unionRects } from './utils/geometry';
-import { getTotalStepsDuration, getCumulativeTimeUpTo } from './utils/timeline';
+import { getTotalStepsDuration, getCumulativeTimeUpTo, getTailDuration } from './utils/timeline';
 import { t } from './utils/i18n';
+
+/** 從中途步驟開始播放時的固定開場倒數（wall-clock ms，不隨播放速度縮放，不看前面步驟間隔） */
+const OPENING_COUNTDOWN_MS = 3000;
 
 function App() {
   const [mode, setMode] = useState<AppMode>(AppMode.IDLE);
@@ -431,12 +434,10 @@ function App() {
 
     // SCRIPT ENDED
     if (index >= script.steps.length) {
-      // Calculate remaining duration (tail)
-      const totalTimeUsed = getTotalStepsDuration(script.steps);
-
+      // 尾段等待：錄製總長超出步驟總和的部分（與從哪一步開始無關，中途開始也等同樣的 tail）
       const recordedDuration = script.metadata.duration || 0;
       // Adjust tail for speed
-      const tailDelay = Math.max(500, (recordedDuration - totalTimeUsed)) / speed;
+      const tailDelay = Math.max(500, getTailDuration(script.steps, recordedDuration)) / speed;
 
       if (script.metadata.loop) {
         // Check loop count: 0 = infinite, N = loop N times
@@ -535,11 +536,18 @@ function App() {
       isPlayingRef.current = true;
       loopCounterRef.current = 0;
       setCompletedLoops(0);
+      // 從中途開始（startIndex > 0）一律先跑固定開場倒數（wall-clock，不隨速度縮放，
+      // 不看前面步驟之間的間隔）；整段從頭播（startIndex === 0）則直接執行不管開場。
+      // sessionStart 設為「起鏈時刻」（按下時刻 + 開場），開場期間 live 為負值，
+      // 其絕對值即開場剩餘毫秒，歸零瞬間起鏈（見 hooks/usePlaybackProgress）。
+      const openingMs = startIndex > 0 ? OPENING_COUNTDOWN_MS : 0;
       setPlaybackStartIndex(startIndex);
-      setSessionStartTime(Date.now());
+      setSessionStartTime(Date.now() + openingMs);
 
-      // Start the chain from the determined index (若從中途點播放則首步直接觸發)
-      playStep(startIndex, 0, isJump);
+      // Start the chain after the opening countdown (若從中途點播放則首步直接觸發，忽略該步 delay)
+      playbackTimeoutRef.current = window.setTimeout(() => {
+        playStep(startIndex, 0, isJump);
+      }, openingMs);
     }
   };
 
