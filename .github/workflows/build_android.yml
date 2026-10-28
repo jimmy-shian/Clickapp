@@ -39,7 +39,7 @@ jobs:
 
       # ✅ 安裝 Android SDK
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       # ✅ 補齊常用 platform / build-tools（避免 aapt / platform not found）
       - name: Install Android SDK packages
@@ -88,6 +88,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-ci-test-') }}
           files: android/app/build/outputs/apk/omniclick-*.apk
           name: Release ${{ github.ref_name }}
           generate_release_notes: true

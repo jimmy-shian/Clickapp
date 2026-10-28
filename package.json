@@ -7,7 +7,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "node tools/ensure-ad-config.cjs",
+    "prebuild": "node tools/ensure-ad-config.cjs",
+    "predev": "node tools/ensure-ad-config.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",
