@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.provider.Settings;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Bundle;
 import android.util.Log;
 
 import com.getcapacitor.BridgeActivity;
@@ -16,6 +17,12 @@ public class MainActivity extends BridgeActivity {
     private Handler checkHandler;
     private Runnable checkRunnable;
     private boolean hasOpenedSettings = false;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(StartupAdPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
 
     @Override
     public void onStart() {

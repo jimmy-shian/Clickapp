@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img">
+<defs>
+<linearGradient id="silverWhite" x1="0%" y1="0%" x2="85%" y2="100%" objectBoundingBox="true"><stop offset="0%" stop-color="#FFFFFF"/><stop offset="57%" stop-color="#F9FCFF"/><stop offset="100%" stop-color="#A8DCFF"/></linearGradient>
+<linearGradient id="silverTop" x1="0%" y1="0%" x2="85%" y2="100%"><stop offset="0%" stop-color="#FFFFFF"/><stop offset="100%" stop-color="#F5FAFF"/></linearGradient>
+<linearGradient id="upperLeft" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0864F4"/><stop offset="100%" stop-color="#009FE8"/></linearGradient>
+<linearGradient id="lowerBase" x1="0%" y1="1" x2="85%" y2="0"><stop offset="0%" stop-color="#8CFEFC"/><stop offset="100%" stop-color="#00A9F4"/></linearGradient>
+<linearGradient id="lowerFace" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#04DDFC"/><stop offset="100%" stop-color="#0750F5"/></linearGradient>
+<linearGradient id="upperNavy" x1="0%" y1="0%" x2="100%" y2="0"><stop offset="0%" stop-color="#030917"/><stop offset="100%" stop-color="#092C66"/></linearGradient>
+<linearGradient id="upperFace" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#0BEEFF"/><stop offset="65%" stop-color="#03B2F5"/><stop offset="100%" stop-color="#1657EF"/></linearGradient>
+</defs>
+<rect width="1024" height="1024" fill="#060B18"/>
+<g id="yesolve-symbol" transform="translate(0 26)">
+<path id="lower_base" d="M 143,798 L 337,536 Q 344,526 352,538 L 472,682 L 472,811 L 154,811 Q 138,811 143,798 Z" fill="url(#lowerBase)"/>
+<path id="lower_faceted" d="M 254,649 L 337,536 Q 344,526 352,538 L 472,682 L 472,811 Z" fill="url(#lowerFace)"/>
+<path id="upper_shadow" d="M 310,288 L 678,288 L 551,396 Q 545,401 552,408 L 645,475 L 618,499 L 339,333 Q 307,315 310,288 Z" fill="url(#upperNavy)"/>
+<path id="upper_cyan" d="M 674,291 L 778,291 L 649,467 Q 644,473 638,467 L 551,409 Q 545,403 552,397 Z" fill="url(#upperFace)"/>
+<path id="s_ribbon" d="M 287,158 C 243,195 201,240 183,287 C 162,346 169,409 251,453 L 524,605 C 544,616 551,628 551,646 L 551,812 H 676 C 757,812 826,747 826,666 C 826,614 803,583 745,551 L 342,334 C 316,320 306,302 309,278 C 313,231 303,189 287,158 Z" fill="url(#silverWhite)"/>
+<path id="top_arm" d="M 287,158 L 849,158 Q 865,158 862,171 L 779,291 H 391 Q 380,291 373,283 Z" fill="url(#silverTop)"/>
+<path id="upper_left_blue" d="M 308,205 L 380,288 Q 383,291 391,291 H 309 C 312,260 311,228 308,205 Z" fill="url(#upperLeft)"/>
+</g>
+</svg>

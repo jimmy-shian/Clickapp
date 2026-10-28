@@ -1,5 +1,19 @@
 apply plugin: 'com.android.application'
 
+def signingProperties = new Properties()
+def signingFile = rootProject.file('../../keystores/signing.properties')
+if (signingFile.exists()) signingFile.withInputStream { signingProperties.load(it) }
+def signingValue = { name, names -> names.collect { System.getenv(it) }.find { it } ?: signingProperties.getProperty(name) }
+def releaseStore = signingValue('storeFile', ['KEYSTORE_FILE', 'ANDROID_KEYSTORE_PATH', 'REATER_KEYSTORE_FILE'])
+def releaseStorePassword = signingValue('storePassword', ['KEYSTORE_PASSWORD', 'ANDROID_KEYSTORE_PASSWORD', 'REATER_STORE_PASS'])
+def releaseAlias = signingValue('keyAlias', ['KEY_ALIAS', 'ANDROID_KEY_ALIAS', 'REATER_KEY_ALIAS'])
+def releaseKeyPassword = signingValue('keyPassword', ['KEY_PASSWORD', 'ANDROID_KEY_PASSWORD', 'REATER_KEY_PASS'])
+if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') } &&
+    (!releaseStore || !releaseStorePassword || !releaseAlias || !releaseKeyPassword)) {
+    throw new GradleException('Release signing requires environment variables or central keystores/signing.properties')
+}
+
+
 android {
     namespace "com.jimmyshian.click"
     compileSdk rootProject.ext.compileSdkVersion
@@ -21,26 +35,19 @@ android {
             outputFileName = "omniclick-${variant.versionName}.apk"
         }
     }
-    signingConfigs {
+        signingConfigs {
         release {
-            // 從環境變數讀取簽章資訊（GitHub Secrets 或本地）
-            if (System.env.KEYSTORE_FILE) {
-                storeFile file(System.env.KEYSTORE_FILE)
-                storePassword System.env.KEYSTORE_PASSWORD
-                keyAlias System.env.KEY_ALIAS
-                keyPassword System.env.KEY_PASSWORD
-            }
+            if (releaseStore) storeFile file(releaseStore)
+            storePassword releaseStorePassword
+            keyAlias releaseAlias
+            keyPassword releaseKeyPassword
         }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            if (signingConfigs.release.storeFile != null) {
-                signingConfig signingConfigs.release
-            } else {
-                signingConfig signingConfigs.debug
-            }
+            signingConfig signingConfigs.release
         }
     }
 }
@@ -62,6 +69,7 @@ dependencies {
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
+    implementation 'com.google.android.gms:play-services-ads:25.4.0'
 }
 
 apply from: 'capacitor.build.gradle'

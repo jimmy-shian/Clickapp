@@ -4,6 +4,7 @@ import { ClickScript, ClickStep, AppMode, SavedScriptSummary } from './types';
 import { FloatingHUD } from './components/FloatingHUD';
 import { ClickCanvas } from './components/ClickCanvas';
 import { StepEditor } from './components/StepEditor';
+import { SplashAd } from './components/SplashAd';
 import {
   loadScriptSummaries,
   saveScript as persistScript,
@@ -25,6 +26,7 @@ import { t } from './utils/i18n';
 const OPENING_COUNTDOWN_MS = 3000;
 
 function App() {
+  const [showSplashAd, setShowSplashAd] = useState(true);
   const [mode, setMode] = useState<AppMode>(AppMode.IDLE);
   const [script, setScript] = useState<ClickScript>(createNewScript);
 
@@ -837,6 +839,7 @@ function App() {
       className="relative w-full h-full overflow-hidden select-none font-sans pointer-events-none"
       style={{ backgroundColor: 'transparent' }}
     >
+      {showSplashAd && <SplashAd onFinish={() => setShowSplashAd(false)} appName="OmniClick Designer" />}
 
       {/* Main Canvas - Only interactive if script is loaded */}
       {isScriptLoaded ? (
