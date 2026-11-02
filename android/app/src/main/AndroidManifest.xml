@@ -57,6 +57,13 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/omniclick_service_config" />
         </service>
+
+        <!--
+          AdMob App ID：缺少它時 Google Mobile Ads SDK 的 MobileAdsInitProvider
+          （ContentProvider，會在 Activity 之前啟動）會直接拋例外造成閃退。
+          先以 Google 官方測試 App ID 佔位，sync_ads.py 會自動覆寫為正式 ID。
+        -->
+        <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-2415998114933157~3732560474"/>
     </application>
 
     <!-- Permissions -->

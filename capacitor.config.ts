@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.jimmyshian.click',
+  appId: 'com.yesolve.click',
   appName: 'omniclick-designer',
   webDir: 'dist'
 };

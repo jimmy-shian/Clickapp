@@ -2,6 +2,8 @@
 <resources>
     <string name="app_name">omniclick-designer</string>
     <string name="title_activity_main">omniclick-designer</string>
-    <string name="package_name">com.jimmyshian.click</string>
-    <string name="custom_url_scheme">com.jimmyshian.click</string>
+    <string name="package_name">com.yesolve.click</string>
+    <string name="custom_url_scheme">com.yesolve.click</string>
+    <string name="admob_app_id">ca-app-pub-2415998114933157~3732560474</string>
+    <string name="admob_unit_splash">ca-app-pub-2415998114933157/2040591898</string>
 </resources>

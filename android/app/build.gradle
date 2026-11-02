@@ -15,10 +15,10 @@ if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
 
 
 android {
-    namespace "com.jimmyshian.click"
+    namespace "com.yesolve.click"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.jimmyshian.click"
+        applicationId "com.yesolve.click"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 9

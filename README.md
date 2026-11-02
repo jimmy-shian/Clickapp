@@ -288,7 +288,7 @@ Clickapp/
 │   ├── input.ts            # 輸入框輔助
 │   └── timeline.ts         # 時間軸計算
 ├── types.ts                # TypeScript 型別定義
-└── capacitor.config.ts     # Capacitor 設定（appId：com.jimmyshian.click）
+└── capacitor.config.ts     # Capacitor 設定（appId：com.yesolve.click）
 ```
 
 ---
@@ -361,7 +361,7 @@ npx cap open android
 ## 版本資訊
 
 - 目前版本：1.0.7（見 `package.json`）
-- App ID：`com.jimmyshian.click`
+- App ID：`com.yesolve.click`
 - 腳本儲存：瀏覽器 `localStorage`
 
 ---

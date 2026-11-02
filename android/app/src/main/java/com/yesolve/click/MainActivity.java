@@ -1,4 +1,4 @@
-package com.jimmyshian.click;
+package com.yesolve.click;
 
 import android.content.ComponentName;
 import android.content.Intent;
