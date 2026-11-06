@@ -2,6 +2,7 @@ import adResetConfig from '../ad-reset-config.json';
 import React, { useState, useEffect, useRef } from 'react';
 import { showNativeAdInSlot, hideNativeAdInSlot } from '../src/lib/startup-ad';
 import { AdSenseSlot } from './AdSenseSlot';
+import { ChevronsUp } from 'lucide-react';
 
 interface SplashAdProps {
   onFinish: () => void;
@@ -117,7 +118,7 @@ export const SplashAd: React.FC<SplashAdProps> = ({ onFinish, appName = 'OmniCli
           className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-b border-slate-700/70 cursor-default"
         >
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">▲</span>
+            <span className="bg-blue-500/10 rounded px-1 py-0.5"><ChevronsUp size={10} className="text-blue-400/80 block" /></span>
             <span className="text-xs font-semibold text-slate-200">{appName}</span>
           </div>
           <div className="flex items-center gap-2">

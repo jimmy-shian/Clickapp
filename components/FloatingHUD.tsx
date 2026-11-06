@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { AppMode, ClickScript, ClickStep, SavedScriptSummary } from '../types';
-import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy } from 'lucide-react';
+import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy, ExternalLink, ChevronsUp } from 'lucide-react';
 import { SafeNumberInput } from './SafeNumberInput';
 import { MinimizedHUD } from './MinimizedHUD';
 import { PlaybackTimeline } from './PlaybackTimeline';
@@ -10,6 +10,7 @@ import {
   reportOverlayRect,
   openFilePicker,
   isAndroidOverlay,
+  isHostApp,
 } from '../utils/android';
 import { clampToViewport, getCollapsedSize } from '../utils/geometry';
 import { stepTypeLabel, getTotalStepsDuration, getStepCumulativeTimes } from '../utils/timeline';
@@ -66,6 +67,16 @@ interface FloatingHUDProps {
   activePlaybackStepIndex?: number | null;
   // 本輪起始步驟（從中間開始播放時，首步觸發前的顯示基準）
   playbackStartIndex?: number;
+
+  // App 畫面（host）專屬：懸浮模式狀態與切換
+  /** 無障礙服務狀態；null＝非 host 語境（瀏覽器/overlay，不顯示控制項） */
+  hostServiceReady?: boolean | null;
+  /** 在 App 畫面按錄製/播放時，由 App 彈出切換提示 */
+  runtimeHint?: 'record' | 'play' | null;
+  onDismissRuntimeHint?: () => void;
+  onEnterOverlayMode?: () => void;
+  onOpenA11ySettings?: () => void;
+
 }
 
 interface LiveDurationDisplayProps {
@@ -264,7 +275,14 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onDuplicateStep,
   completedLoops = 0,
   activePlaybackStepIndex = null,
-  playbackStartIndex = 0
+  playbackStartIndex = 0,
+
+  hostServiceReady,
+  runtimeHint,
+  onDismissRuntimeHint,
+  onEnterOverlayMode,
+  onOpenA11ySettings,
+
 }) => {
   const { t, lang, toggleLanguage } = useTranslation();
 
@@ -281,6 +299,13 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
     }
   }, [selectedStepId]);
 
+  // App 畫面按下錄製/播放後觸發切換提示：先把縮小的 HUD 展開，提示視窗才看得到
+  useEffect(() => {
+    if (runtimeHint) {
+      setIsCollapsed(false);
+    }
+  }, [runtimeHint]);
+
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -292,6 +317,392 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
 
   // Script Delete Confirmation State
   const [scriptToDelete, setScriptToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // App 畫面（host）
+  const [isHost, setIsHost] = useState(false);
+
+  useEffect(() => {
+    setIsHost(isHostApp());
+  }, []);
+Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy, ExternalLink, ChevronsUp } from 'lucide-react';
+import { SafeNumberInput } from './SafeNumberInput';
+import { MinimizedHUD } from './MinimizedHUD';
+import { PlaybackTimeline } from './PlaybackTimeline';
+import { formatTime, parseFormattedTime } from '../utils/format';
+import { blurOnEnter, stopTouchPropagation, handleInputFocus, handleInputBlur } from '../utils/input';
+import {
+  reportOverlayRect,
+  openFilePicker,
+  isAndroidOverlay,
+  isHostApp,
+} from '../utils/android';
+import { clampToViewport, getCollapsedSize } from '../utils/geometry';
+import { stepTypeLabel, getTotalStepsDuration, getStepCumulativeTimes } from '../utils/timeline';
+import { useLiveDuration } from '../hooks/useLiveDuration';
+import { useWindowDrag, getDragClientXY } from '../hooks/useWindowDrag';
+import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
+import { useTranslation } from '../utils/i18n';
+
+interface FloatingHUDProps {
+  mode: AppMode;
+  script: ClickScript;
+  savedScripts: SavedScriptSummary[];
+  isScriptLoaded: boolean;
+  showSaveFeedback?: boolean;
+  sessionStartTime: number | null;
+  isDraggingPoint?: boolean;
+
+  // Actions
+  onRecordToggle: () => void;
+  onPlayToggle: () => void;
+  onClear: () => void; // Clear current steps
+  onDuplicateStep?: () => void; // Duplicate selected step
+
+  // Storage Actions
+  onSaveLocal: () => void; // Save to local storage
+  onExport: () => void; // Export to file
+  onLoadFile: (file: File) => void; // Import from file
+  onLoadLocal: (id: string) => void; // Load from local storage
+  onCreateNew: () => void;
+  onDeleteLocal: (id: string) => void;
+  onCloseScript: () => void; // Go back to menu
+  onExitApp: () => void; // Close the app
+
+  // Converter
+  onConvertSheet: (songFile: File, mapFile: File) => void;
+
+  // Script Config
+  setLoop: (loop: boolean) => void;
+  setLoopCount: (count: number) => void;
+  setScriptName: (name: string) => void;
+  setScriptDuration?: (durationMs: number) => void;
+
+  // Step Interaction
+  onSelectStep: (id: string | null) => void;
+  selectedStepId: string | null;
+
+  // Playback Control
+  playbackSpeed: number;
+  setPlaybackSpeed: (speed: number) => void;
+  // Layout sync back to App / Android
+  onRectChange?: (x: number, y: number, width: number, height: number, isCollapsed: boolean) => void;
+  // Playback progress (由 App 傳入，避免 HUD 自己高頻計算)
+  completedLoops?: number;
+  activePlaybackStepIndex?: number | null;
+  // 本輪起始步驟（從中間開始播放時，首步觸發前的顯示基準）
+  playbackStartIndex?: number;
+
+  // App 畫面（host）專屬：懸浮模式狀態與切換
+  /** 無障礙服務狀態；null＝非 host 語境（瀏覽器/overlay，不顯示控制項） */
+  hostServiceReady?: boolean | null;
+  /** 在 App 畫面按錄製/播放時，由 App 彈出切換提示 */
+  runtimeHint?: 'record' | 'play' | null;
+  onDismissRuntimeHint?: () => void;
+  onEnterOverlayMode?: () => void;
+  onOpenA11ySettings?: () => void;
+
+}
+
+interface LiveDurationDisplayProps {
+  sessionStartTime: number | null;
+  isTimed: boolean;
+  totalDuration: number;
+}
+
+interface EditableDurationDisplayProps {
+  /** 顯示用總長（已除速 ms） */
+  totalDuration: number;
+  playbackSpeed: number;
+  /** 最低允許 base ms（未除速）＝ 全部步驟耗時（含 repeat 展開），避免尾段被裁掉 */
+  minBaseMs: number;
+  /** commit 回傳 base ms（未除速），寫入 metadata.duration */
+  onCommit: (baseMs: number) => void;
+}
+
+/** 閒置時可編輯的總時長：可直接輸入秒數或分:秒，讓總長不必綁定錄製當下長度 */
+const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.memo(({
+  totalDuration,
+  playbackSpeed,
+  minBaseMs,
+  onCommit,
+}) => {
+  const [localStr, setLocalStr] = useState('');
+  const isFocusedRef = useRef(false);
+  const safeSpeed = playbackSpeed > 0 ? playbackSpeed : 1;
+  const minDisplay = minBaseMs / safeSpeed;
+
+  // 非聚焦時同步外部值（例如載入腳本、步驟編輯導致總長變化）
+  useEffect(() => {
+    if (!isFocusedRef.current) {
+      setLocalStr(formatTime(totalDuration));
+    }
+  }, [totalDuration]);
+
+  const handleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
+    isFocusedRef.current = false;
+    handleInputBlur();
+    const raw = e?.target?.value ?? localStr;
+    const newMs = parseFormattedTime(raw);
+    if (newMs !== null) {
+      const baseMs = Math.max(minBaseMs, Math.round(newMs * safeSpeed));
+      onCommit(baseMs);
+      setLocalStr(formatTime(baseMs / safeSpeed));
+    } else {
+      // 無效輸入：還原顯示值
+      setLocalStr(formatTime(totalDuration));
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      enterKeyHint="done"
+      autoComplete="off"
+      autoCorrect="off"
+      autoCapitalize="off"
+      spellCheck={false}
+      value={localStr}
+      onChange={(e) => setLocalStr(e.target.value)}
+      onFocus={(e) => {
+        isFocusedRef.current = true;
+        handleInputFocus(e);
+      }}
+      onBlur={handleBlur}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          isFocusedRef.current = false;
+          handleBlur();
+          blurOnEnter(e);
+        }
+      }}
+      onTouchStart={stopTouchPropagation}
+      aria-label="總時長"
+      title={`最低 ${formatTime(minDisplay)}（最後一步含重複觸發時刻）`}
+      className="w-full bg-transparent text-right text-lg font-mono text-white font-semibold tracking-widest outline-none border-b border-transparent focus:border-blue-500 select-text"
+      placeholder="00:00.000"
+      style={{ touchAction: 'manipulation' }}
+    />
+  );
+});
+
+const LiveDurationDisplay: React.FC<LiveDurationDisplayProps> = React.memo(({
+  sessionStartTime,
+  isTimed,
+  totalDuration,
+}) => {
+  const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
+  // 開場倒數期間 live 為負（sessionStart 在未來），顯示箝制為 0
+  const displayDuration = isTimed ? Math.max(0, liveDuration) : totalDuration;
+  return (
+    <div className="text-lg font-mono text-white font-semibold">
+      {formatTime(displayDuration)}
+    </div>
+  );
+});
+
+interface MemoStepRowProps {
+  step: ClickStep;
+  idx: number;
+  isSelected: boolean;
+  displayTime: string;
+  onSelect: (id: string) => void;
+  onDuplicate?: () => void;
+  duplicateTitle: string;
+  setRef: (el: HTMLDivElement | null) => void;
+}
+
+const MemoStepRow: React.FC<MemoStepRowProps> = React.memo(({
+  step,
+  idx,
+  isSelected,
+  displayTime,
+  onSelect,
+  onDuplicate,
+  duplicateTitle,
+  setRef,
+}) => {
+  return (
+    <div
+      ref={setRef}
+      onClick={() => onSelect(step.id)}
+      className={`relative p-3 cursor-pointer rounded mb-1 border ${isSelected
+        ? 'bg-blue-600 border-blue-400 text-white'
+        : 'bg-transparent border-white/5 text-gray-300'
+        }`}
+    >
+      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
+        <div className="flex items-center gap-2 w-24">
+          <span className={`font-mono text-lg opacity-70 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
+            #{idx + 1}
+          </span>
+          <span className="font-semibold text-lg flex items-center gap-1">
+            <span>{stepTypeLabel(step.type)}</span>
+            {step.repeat > 1 && (
+              <span className="text-xs font-black text-amber-400 font-mono">×{step.repeat}</span>
+            )}
+          </span>
+        </div>
+
+        <div className="flex justify-end pr-4">
+          <span className={`font-mono text-[12px] font-black tabular-nums ${isSelected ? 'text-white' : 'text-gray-200'}`}>
+            {displayTime}
+          </span>
+        </div>
+
+        <div className={`w-24 text-right font-mono text-[10px] flex items-center justify-end gap-1 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
+          {isSelected && onDuplicate && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+              className="p-1 rounded text-blue-200"
+              title={duplicateTitle}
+            >
+              <Copy size={12} />
+            </button>
+          )}
+          {Math.round(step.x)},{Math.round(step.y)}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+export const FloatingHUD: React.FC<FloatingHUDProps> = ({
+  mode,
+  script,
+  savedScripts,
+  isScriptLoaded,
+  showSaveFeedback,
+  sessionStartTime,
+  isDraggingPoint = false,
+  onRecordToggle,
+  onPlayToggle,
+  onClear,
+  onSaveLocal,
+  onExport,
+  onLoadFile,
+  onLoadLocal,
+  onCreateNew,
+  onDeleteLocal,
+  onCloseScript,
+  onExitApp,
+  onConvertSheet,
+  setLoop,
+  setLoopCount,
+  setScriptName,
+  setScriptDuration,
+  onSelectStep,
+  selectedStepId,
+  playbackSpeed,
+  setPlaybackSpeed,
+  onRectChange,
+  onDuplicateStep,
+  completedLoops = 0,
+  activePlaybackStepIndex = null,
+  playbackStartIndex = 0,
+
+  hostServiceReady,
+  runtimeHint,
+  onDismissRuntimeHint,
+  onEnterOverlayMode,
+  onOpenA11ySettings,
+
+}) => {
+  const { t, lang, toggleLanguage } = useTranslation();
+
+  // Window State
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [size, setSize] = useState({ width: 380, height: 500 }); // Slightly taller default
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isAndroidBridge, setIsAndroidBridge] = useState(() => isAndroidOverlay());
+
+  // 編輯步驟時自動縮小主視窗，露出畫布與底層畫面
+  useEffect(() => {
+    if (selectedStepId !== null) {
+      setIsCollapsed(true);
+    }
+  }, [selectedStepId]);
+
+  // App 畫面按下錄製/播放後觸發切換提示：先把縮小的 HUD 展開，提示視窗才看得到
+  useEffect(() => {
+    if (runtimeHint) {
+      setIsCollapsed(false);
+    }
+  }, [runtimeHint]);
+
+  // Dragging State
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Converter UI State
+  const [isConverterOpen, setIsConverterOpen] = useState(false);
+  const [songFile, setSongFile] = useState<File | null>(null);
+  const [mapFile, setMapFile] = useState<File | null>(null);
+
+  // Script Delete Confirmation State
+  const [scriptToDelete, setScriptToDelete] = useState<{ id: string; name: string } | null>(null);
+
+  // App 畫面（host）與整體匯入／匯出選取視窗
+  const [isHost, setIsHost] = useState(false);
+  const [bulkMode, setBulkMode] = useState<'export' | 'import' | null>(null);
+  const [bulkSelection, setBulkSelection] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setIsHost(isHostApp());
+  }, []);
+
+  const openBulk = useCallback((nextMode: 'export' | 'import', summaries: SavedScriptSummary[]) => {
+    setBulkMode(nextMode);
+    // 預設全選
+    setBulkSelection(new Set(summaries.map((s) => s.id)));
+  }, []);
+
+  const closeBulk = () => {
+    const wasImport = bulkMode === 'import';
+    setBulkMode(null);
+    setBulkSelection(new Set());
+    if (wasImport) onDismissBundleImport?.();
+  };
+
+  const toggleBulkItem = (id: string) => {
+    setBulkSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // 載入 bundle 後自動開啟匯入勾選視窗
+  useEffect(() => {
+    if (pendingBundleSummaries && pendingBundleSummaries.length > 0) {
+      openBulk('import', pendingBundleSummaries);
+    }
+  }, [pendingBundleSummaries, openBulk]);
+
+  const bulkSummaries = bulkMode === 'export'
+    ? savedScripts
+    : (pendingBundleSummaries ?? []);
+
+  const changeBulkSelectionAll = (selected: boolean) => {
+    setBulkSelection(
+      selected ? new Set(bulkSummaries.map((s) => s.id)) : new Set()
+    );
+  };
+
+  const confirmBulk = () => {
+    const ids = Array.from(bulkSelection).filter((id) =>
+      bulkSummaries.some((s) => s.id === id)
+    );
+    const mode = bulkMode;
+    setBulkMode(null);
+    setBulkSelection(new Set());
+    if (mode === 'export') {
+      onExportBundle?.(ids);
+    } else if (mode === 'import') {
+      onImportBundle?.(ids);
+    }
+  };
 
   // Refs
   const hasMovedRef = useRef(false);
@@ -747,6 +1158,37 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   />
                 )}
               </div>
+
+              {/* App 畫面專用：懸浮模式狀態與切換（其他 App 錄製/播放都是在懸浮 HUD 執行） */}
+              {isHost && hostServiceReady !== null && (
+                <div
+                  className="mt-2 rounded-lg border px-2.5 py-2"
+                  style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(0,0,0,0.25)' }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[11px] text-gray-300 min-w-0">
+                      <ExternalLink
+                        size={13}
+                        className={hostServiceReady ? 'text-green-400' : 'text-gray-500'}
+                      />
+                      <span className="truncate">
+                        {t('overlayMode')} · {hostServiceReady ? t('serviceEnabled') : t('overlayModeDisabled')}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={hostServiceReady ? onEnterOverlayMode : onOpenA11ySettings}
+                      className={`shrink-0 text-[11px] px-2.5 py-1.5 rounded font-semibold flex items-center gap-1 ${
+                        hostServiceReady
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                          : 'bg-amber-500/90 hover:bg-amber-400 text-black'
+                      }`}
+                    >
+                      {hostServiceReady ? t('overlayEnter') : t('overlayEnable')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ADVANCED TOOLS SECTION: 進階光遇琴譜轉換（緊湊設計） */}
@@ -760,7 +1202,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                   <div className="flex items-center gap-1.5 text-xs font-semibold">
                     <ArrowRightLeft size={13} /> {t('sheetConverterTitle')}
                   </div>
-                  <span className="text-[10px] text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">▲</span>
+                  <ChevronsUp size={12} className="text-blue-400/80" />
                 </button>
               ) : (
                 <div className="p-2.5 bg-gray-900 border-t border-white/10">
@@ -1082,6 +1524,56 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               >
                 <Trash2 size={12} />
                 <span>{t('delete')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* App 畫面按錄製/播放 → 切到懸浮 HUD 的提示 */}
+      {runtimeHint && (
+        <div
+          className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-4 rounded-xl pointer-events-auto"
+          onClick={(e) => { e.stopPropagation(); onDismissRuntimeHint?.(); }}
+        >
+          <div
+            className="bg-[#1f2937] border border-white/20 rounded-xl p-4 max-w-[280px] w-full shadow-2xl space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 text-amber-400 font-bold text-sm">
+              <ExternalLink size={16} />
+              <span>{t('hostRuntimeNeededTitle')}</span>
+            </div>
+            <p className="text-xs text-gray-200 leading-relaxed break-words">
+              {t('hostRuntimeNeededBody')}
+            </p>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => onDismissRuntimeHint?.()}
+                className="px-3 py-1.5 rounded text-xs text-gray-300 hover:bg-white/10 transition-colors"
+              >
+                {t('cancel')}
+              </button>
+              {hostServiceReady === false && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onDismissRuntimeHint?.();
+                    onOpenA11ySettings?.();
+                  }}
+                  className="px-3 py-1.5 rounded text-xs bg-amber-500/90 hover:bg-amber-400 text-black font-semibold transition-colors"
+                >
+                  {t('overlayEnable')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onEnterOverlayMode?.()}
+                className="px-3 py-1.5 rounded text-xs bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-colors flex items-center gap-1"
+              >
+                <ExternalLink size={12} />
+                <span>{t('overlayEnter')}</span>
               </button>
             </div>
           </div>

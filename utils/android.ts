@@ -6,6 +6,16 @@ export interface AndroidBridge {
   performClick: (x: number, y: number) => void;
   performSwipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
   close?: () => void;
+  /** 辨識橋接所處的 WebView：「overlay」＝懸浮 HUD（服務層）／「host」＝App 畫面（Capacitor） */
+  getContext?: () => string;
+  /** 無障礙服務是否已啟用（host 橋接提供同步查詢） */
+  isAccessibilityEnabled?: () => boolean;
+  /** 開啟系統「無障礙設定」頁 */
+  openAccessibilitySettings?: () => void;
+  /** App 畫面切換到懸浮模式；回傳 false 代表服務未啟用（需先引導使用者去設定） */
+  enterOverlayMode?: () => boolean;
+  /** 結束 App 畫面（host 橋接提供；overlay 用 close()） */
+  exitApp?: () => void;
   updateOverlayRect?: (x: number, y: number, width: number, height: number) => void;
   tap?: (x: number, y: number) => void;
   swipe?: (x1: number, y1: number, x2: number, y2: number, durationMs: number) => void;
@@ -37,16 +47,37 @@ export function getAndroidBridge(): AndroidBridge | undefined {
   }
 }
 
-/** 是否跑在 Accessibility Service 的 overlay WebView 內 */
-export function isAndroidOverlay(): boolean {
-  try {
-    if (typeof window === 'undefined' || !window.location) return false;
-    // 該 WebView 以 https://appassets.androidplatform.net/assets/public/index.html 載入；
-    // 一般 App / Browser 的 host 不是這個。
-    return window.location.hostname === 'appassets.androidplatform.net';
-  } catch {
-    return false;
+/** 橋接所處的 WebView 語境：'overlay'（懸浮 HUD）/ 'host'（App 畫面）/ null（瀏覽器預覽） */
+export type BridgeContext = 'overlay' | 'host' | null;
+
+let cachedContext: BridgeContext | undefined;
+
+/** 辨識目前橋接所在語境（首次同步呼叫原生 tag，之後取快取） */
+export function getHostContext(): BridgeContext {
+  if (cachedContext === undefined) {
+    try {
+      const ctx = getAndroidBridge()?.getContext?.();
+      if (ctx === 'overlay' || ctx === 'host') {
+        cachedContext = ctx;
+      } else {
+        // 有 window.Android 但沒有語境 tag → 舊版橋接＝overlay
+        cachedContext = getAndroidBridge() ? 'overlay' : null;
+      }
+    } catch {
+      cachedContext = null;
+    }
   }
+  return cachedContext;
+}
+
+/** 是否跑在 Accessibility Service 的 overlay WebView（懸浮 HUD）內 */
+export function isAndroidOverlay(): boolean {
+  return getHostContext() === 'overlay';
+}
+
+/** 是否跑在 App 畫面的 Capacitor WebView 內（懸浮模式另以按鈕切換） */
+export function isHostApp(): boolean {
+  return getHostContext() === 'host';
 }
 
 function safeCall(fn: (b: AndroidBridge) => void): void {
@@ -175,6 +206,39 @@ export function setRecordingMode(recording: boolean): void {
   safeCall((b) => b.setRecordingMode?.(recording));
 }
 
+/** 查詢無障礙服務是否已啟用（host 橋接提供；其他語境回傳 false） */
+export function isAccessibilityServiceEnabled(): boolean {
+  try {
+    const b = getAndroidBridge();
+    return typeof b?.isAccessibilityEnabled === 'function' ? b.isAccessibilityEnabled() : false;
+  } catch {
+    return false;
+  }
+}
+
+/** 開啟系統「無障礙設定」頁（host 橋接提供；其他語境静默略過） */
+export function openAndroidAccessibilitySettings(): void {
+  safeCall((b) => b.openAccessibilitySettings?.());
+}
+
+/** App 畫面切換到懸浮模式。
+ * 回傳 true：已移動到背景，懸浮 HUD 接管畫面；
+ * 回傳 false：服務未啟用，呼叫方應先帶使用者到無障礙設定。
+ */
+export function enterOverlayMode(): boolean {
+  try {
+    const b = getAndroidBridge();
+    return typeof b?.enterOverlayMode === 'function' ? b.enterOverlayMode() : false;
+  } catch {
+    return false;
+  }
+}
+
+/** 結束 App 畫面（host 橋接提供；瀏覽器略過） */
+export function exitHostApp(): void {
+  safeCall((b) => b.exitApp?.());
+}
+
 /** 關閉 overlay（請系統停用服務） */
 export function closeOverlay(): void {
   safeCall((b) => b.close?.());
@@ -195,4 +259,9 @@ export const android = {
   saveFile: saveFileViaBridge,
   setRecordingMode,
   close: closeOverlay,
+  isHostApp,
+  isAccessibilityEnabled: isAccessibilityServiceEnabled,
+  openAccessibilitySettings: openAndroidAccessibilitySettings,
+  enterOverlayMode,
+  exitApp: exitHostApp,
 };

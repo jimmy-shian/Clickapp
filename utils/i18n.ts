@@ -28,6 +28,16 @@ export const translations = {
     confirmDelete: '確定要刪除「{name}」嗎？',
     invalidScript: '無效的腳本檔案',
 
+    // 懸浮模式（App 畫面 ⇄ 懸浮 HUD）
+    overlayMode: '懸浮模式',
+    overlayModeDisabled: '服務未啟用',
+    overlayEnable: '啟用服務',
+    overlayEnter: '進入懸浮模式',
+    serviceEnabled: '服務已啟用',
+    hostRuntimeNeededTitle: '需要懸浮模式',
+    hostRuntimeNeededBody: '錄製／播放要在懸浮 HUD 上執行，才能把點擊／滑動送到其他 App。請先啟用無障礙服務，再進入懸浮模式操作。',
+
+
     // Advanced Features - Sky Sheet Converter
     advancedFeatures: '進階功能',
     sheetConverterTitle: '進階光遇琴譜轉換',
@@ -108,6 +118,16 @@ export const translations = {
     confirmClear: 'Are you sure you want to clear all steps?',
     confirmDelete: 'Are you sure you want to delete "{name}"?',
     invalidScript: 'Invalid script file',
+
+    // Floating mode (app screen ⇄ floating HUD)
+    overlayMode: 'Floating HUD',
+    overlayModeDisabled: 'Service off',
+    overlayEnable: 'Enable service',
+    overlayEnter: 'Enter Floating HUD',
+    serviceEnabled: 'Service on',
+    hostRuntimeNeededTitle: 'Floating HUD required',
+    hostRuntimeNeededBody: 'Recording and playback run on the floating HUD, so taps and swipes can be sent to other apps. Enable the Accessibility service first, then enter the floating HUD.',
+
 
     // Advanced Features - Sky Sheet Converter
     advancedFeatures: 'Advanced Features',

@@ -1,5 +1,8 @@
 {
 	"appId": "com.yesolve.click",
 	"appName": "omniclick-designer",
-	"webDir": "dist"
+	"webDir": "dist",
+	"server": {
+		"hostname": "appassets.androidplatform.net"
+	}
 }

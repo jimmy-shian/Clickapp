@@ -27,6 +27,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.File;
+
 import androidx.webkit.WebViewAssetLoader;
 
 import androidx.annotation.Nullable;
@@ -42,6 +44,9 @@ public class OmniClickAccessibilityService extends AccessibilityService {
     private WebViewAssetLoader assetLoader;
     private TouchOverlayView touchView;
     private WindowManager.LayoutParams touchLayoutParams;
+
+    // App 畫面（MainActivity）在前台時隱藏服務層懸浮 HUD，避免兩份 HUD 疊在畫面上
+    private volatile boolean hiddenForHost = false;
 
     // 錄製模式旗標（由 JS bridge 控制），只在錄製時才需要穿透 tap
     private volatile boolean isRecordingMode = false;
@@ -109,10 +114,43 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         createWebViewOverlay();
         createTouchOverlay();
         Log.d(TAG, "Overlay created successfully");
+
+        // 服務連線時若 App 畫面已在前台，先隱藏 HUD（避免剛啟用服務時與 App 界面同屏重疊）
+        if (MainActivity.isHostResumed()) {
+            setOverlaysHiddenForHost(true);
+        }
     }
 
     public static OmniClickAccessibilityService getInstance() {
         return instance;
+    }
+
+    /** App 畫面聚焦/失焦時隱藏或還原服務層懸浮 HUD（由 MainActivity.onWindowFocusChanged 呼叫） */
+    public void setOverlaysHiddenForHost(final boolean hidden) {
+        hiddenForHost = hidden;
+        new Handler(Looper.getMainLooper()).post(() -> {
+            if (webView != null) {
+                webView.setVisibility(hidden ? View.GONE : View.VISIBLE);
+            }
+            if (touchView != null) {
+                touchView.setVisibility(hidden ? View.GONE : View.VISIBLE);
+            }
+            Log.d(TAG, "setOverlaysHiddenForHost: " + hidden);
+        });
+    }
+
+    /** 從 App 畫面切換到懸浮模式時，重載 overlay WebView 以同步共用的本地腳本資料 */
+    public void prepareHandoffToOverlay() {
+        final WebView wv = webView;
+        if (wv == null) return;
+        new Handler(Looper.getMainLooper()).post(() -> {
+            try {
+                wv.reload();
+                Log.d(TAG, "Overlay reloading for host handoff");
+            } catch (Exception e) {
+                Log.e(TAG, "prepareHandoffToOverlay reload failed", e);
+            }
+        });
     }
 
     // 由 FilePickerActivity 在選檔完成後呼叫，將檔案內容回傳給前端 JS
@@ -388,6 +426,18 @@ public class OmniClickAccessibilityService extends AccessibilityService {
 
     private class JsBridge {
 
+        // 語境 tag：懸浮 HUD 的 WebView；App 畫面的 host 橋接回傳 "host"
+        @JavascriptInterface
+        public String getContext() {
+            return "overlay";
+        }
+
+        // 懸浮 HUD 由服務層建立，存在即代表無障礙服務已啟用
+        @JavascriptInterface
+        public boolean isAccessibilityEnabled() {
+            return true;
+        }
+
         @JavascriptInterface
         public void updateOverlayRect(float x, float y, float width, float height) {
             overlayX = x;
@@ -492,14 +542,31 @@ public class OmniClickAccessibilityService extends AccessibilityService {
         }
 
         // 從 overlay 內觸發原生儲存流程，使用者可選擇資料夾與檔名。
+        // 內容先寫入快取暫存檔再由 FileSaveActivity 讀取，避免大型腳本包超出 Intent 限制。
         @JavascriptInterface
         public void saveFile(String fileName, String content) {
             Log.d(TAG, "saveFile from JS, fileName=" + fileName);
             try {
+                String tempPath = null;
+                if (content != null) {
+                    File cacheDir = new File(getCacheDir(), "saves");
+                    if (!cacheDir.exists()) cacheDir.mkdirs();
+                    File temp = File.createTempFile("omniclick_save_", ".json", cacheDir);
+                    try (java.io.FileOutputStream out = new java.io.FileOutputStream(temp)) {
+                        out.write(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        out.flush();
+                    }
+                    tempPath = temp.getAbsolutePath();
+                }
+
                 Intent intent = new Intent(OmniClickAccessibilityService.this, FileSaveActivity.class);
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                intent.putExtra("fileName", fileName);
-                intent.putExtra("content", content);
+                if (fileName != null) intent.putExtra("fileName", fileName);
+                if (tempPath != null) {
+                    intent.putExtra("tempPath", tempPath);
+                } else if (content != null) {
+                    intent.putExtra("content", content); // 暫存檔寫入失敗才退回舊流程
+                }
                 startActivity(intent);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to start FileSaveActivity", e);

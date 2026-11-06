@@ -17,6 +17,9 @@ import {
   android,
   getAndroidBridge,
   subscribeKeyboardOpen,
+  isHostApp,
+  isAndroidOverlay,
+  isAccessibilityServiceEnabled,
 } from './utils/android';
 import { withTouchPadding, EXPANDED_EXTRA_BOTTOM, unionRects } from './utils/geometry';
 import { getTotalStepsDuration, getCumulativeTimeUpTo, getTailDuration } from './utils/timeline';
@@ -35,6 +38,13 @@ function App() {
   const [savedScripts, setSavedScripts] = useState<SavedScriptSummary[]>([]);
   const [showSaveFeedback, setShowSaveFeedback] = useState(false);
 
+  // Host 畫面（App 內）狀態：無障礙服務狀態與切換中提示
+  // hostServiceReady: null = 非環境（瀏覽器/overlay 不顯示該控制項）
+  const [hostServiceReady, setHostServiceReady] = useState<boolean | null>(null);
+  // 在 App 畫面按下錄製/播放時提示需切換到懸浮 HUD
+  const [runtimeHint, setRuntimeHint] = useState<'record' | 'play' | null>(null);
+
+
   // Playback Visual State
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const playbackSpeedRef = useRef(1); // Ref to access current speed inside playback closures
@@ -47,6 +57,10 @@ function App() {
   // 鍵盤區觸控穿透給 IME，按鍵不再被轉發進 WebView 造成 blur 關鍵盤
   const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   useEffect(() => subscribeKeyboardOpen(setIsKeyboardOpen), []);
+
+  // WebView 語境：App 畫面（host）鋪不透明背景，看起來像一般 App；
+  // 懸浮 HUD（overlay）維持透明穿透
+  const [isHost] = useState(() => isHostApp());
 
   // Playback & Recording Refs
   const playbackTimeoutRef = useRef<number | null>(null);
@@ -93,6 +107,52 @@ function App() {
   const loadSavedScriptsList = () => {
     setSavedScripts(loadScriptSummaries());
   };
+
+  // 跨語境同步：App 畫面與懸浮 HUD 共用 localStorage，
+  // 閒置時定期＋聚焦/可見時刷新清單，讓另一份畫面儲存的腳本即時出現
+  useEffect(() => {
+    const refresh = () => {
+      if (mode === AppMode.IDLE) {
+        setSavedScripts(loadScriptSummaries());
+      }
+    };
+    const onVisibility = () => {
+      try {
+        if (document.hidden) return;
+      } catch { /* noop */ }
+      refresh();
+    };
+    const onVisible = () => refresh();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisible);
+    const interval = window.setInterval(refresh, 5000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisible);
+      window.clearInterval(interval);
+    };
+  }, [mode]);
+
+  // 無障礙服務狀態（僅 host 畫面）：掛載＋聚焦／回到前景時刷新
+  const refreshHostServiceState = useCallback(() => {
+    if (!isHostApp()) return;
+    setHostServiceReady(isAccessibilityServiceEnabled());
+  }, []);
+  useEffect(() => {
+    refreshHostServiceState();
+    const onVisibility = () => {
+      try {
+        if (document.hidden) return;
+      } catch { /* noop */ }
+      refreshHostServiceState();
+    };
+    window.addEventListener('focus', refreshHostServiceState);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', refreshHostServiceState);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [refreshHostServiceState]);
 
   const saveScriptToStorage = (scriptToSave: ClickScript) => {
     return persistScript(scriptToSave);
@@ -153,15 +213,44 @@ function App() {
   };
 
   const handleExitApp = () => {
-    // Remove confirm dialog to ensure direct exit
-    // Attempt various close methods
-    const bridge = getAndroidBridge();
-    if (bridge && typeof bridge.close === 'function') {
+    // 懸浮 HUD：關閉服務（等同在設定中關閉服務）；
+    // App 畫面：結束 Activity；瀏覽器：略過
+    if (isAndroidOverlay()) {
       android.close();
-    } else if (typeof window.close === 'function') {
+      return;
+    }
+    if (isHostApp()) {
+      android.exitApp();
+      return;
+    }
+    if (typeof window.close === 'function') {
       try { window.close(); } catch { /* noop */ }
     }
   };
+
+  // --- 懸浮模式切換（App 畫面 ⇄ 懸浮 HUD）---
+  const handleEnterOverlayMode = useCallback(() => {
+    setRuntimeHint(null);
+    try {
+      // 服務已啟用：切換成功（App 退到背景，懸浮 HUD 接管）
+      if (android.enterOverlayMode()) return;
+      // 未啟用：帶使用者到無障礙設定
+      android.openAccessibilitySettings();
+    } catch { /* noop */ }
+  }, []);
+
+  const handleOpenA11ySettings = useCallback(() => {
+    try {
+      android.openAccessibilitySettings();
+    } catch { /* noop */ }
+  }, []);
+
+  /** 在 App 畫面按錄製／播放時：提示需先進入懸浮 HUD（手勢由無障礙服務分派） */
+  const gateHostRuntime = useCallback((kind: 'record' | 'play'): boolean => {
+    if (!isHostApp()) return true;
+    setRuntimeHint(kind);
+    return false;
+  }, []);
 
   // --- Logic: Converter (本體見 services/sheetConverter) ---
   const handleConvertSheet = async (songFile: File, mapFile: File) => {
@@ -380,6 +469,9 @@ function App() {
       updateAndroidOverlayRect(r.x, r.y, r.width, r.height);
     } else {
       // START RECORDING
+      // App 畫面內無法執行穿透錄製 → 提示切換到懸浮 HUD
+      if (!gateHostRuntime('record')) return;
+
       // 通知 Android 開始錄製穿透 tap
       android.setRecordingMode(true);
 
@@ -521,6 +613,9 @@ function App() {
     } else {
       if (script.steps.length === 0) return;
 
+      // App 畫面內無法在底層 App 執行手勢 → 提示切換到懸浮 HUD
+      if (!gateHostRuntime('play')) return;
+
       // Determine start index: if a step is selected, start from that step
       const targetStepId = typeof fromStepId === 'string' ? fromStepId : selectedStepId;
       let startIndex = 0;
@@ -584,6 +679,8 @@ function App() {
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
+
+        // 單一腳本（舊格式）：直接載入到編輯器
         const steps = (json.steps || []).map((s: any) => ({
           ...s,
           repeat: s.repeat || 1,
@@ -835,9 +932,10 @@ function App() {
 
   return (
     // Updated: Background is transparent and pointer-events passed through
+    // Host（App 畫面）鋪深色實底，讓介面像一般 App；overlay 維持透明
     <div
       className="relative w-full h-full overflow-hidden select-none font-sans pointer-events-none"
-      style={{ backgroundColor: 'transparent' }}
+      style={{ backgroundColor: isHost ? '#0f1117' : 'transparent' }}
     >
       {showSplashAd && <SplashAd onFinish={() => setShowSplashAd(false)} appName="OmniClick Designer" />}
 
@@ -901,6 +999,14 @@ function App() {
 
         onRectChange={handleHudRectChange}
         onDuplicateStep={handleStepDuplicate}
+
+        // 懸浮模式（App 畫面 ⇄ 懸浮 HUD）
+        hostServiceReady={hostServiceReady}
+        runtimeHint={runtimeHint}
+        onDismissRuntimeHint={() => setRuntimeHint(null)}
+        onEnterOverlayMode={handleEnterOverlayMode}
+        onOpenA11ySettings={handleOpenA11ySettings}
+
       />
 
       {/* Step Editor */}
