@@ -40,6 +40,14 @@ export interface SavedScriptSummary {
   stepCount: number;
 }
 
+/** 整體匯入／匯出的打包格式（可一次帶多個腳本） */
+export interface ScriptBundle {
+  type: 'omniclick-bundle';
+  version: 1;
+  exportedAt: number;
+  scripts: ClickScript[];
+}
+
 export enum AppMode {
   IDLE = 'IDLE',
   RECORDING = 'RECORDING',

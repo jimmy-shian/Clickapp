@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ClickScript, ClickStep, AppMode, SavedScriptSummary } from './types';
+import { ClickScript, ClickStep, AppMode, SavedScriptSummary, ScriptBundle } from './types';
 import { FloatingHUD } from './components/FloatingHUD';
 import { ClickCanvas } from './components/ClickCanvas';
 import { StepEditor } from './components/StepEditor';
@@ -11,6 +11,7 @@ import {
   loadScriptById,
   deleteScriptById,
   createNewScript,
+  saveScriptsBulk,
 } from './services/scriptStorage';
 import { convertSheetFiles } from './services/sheetConverter';
 import {
@@ -44,6 +45,9 @@ function App() {
   // 在 App 畫面按下錄製/播放時提示需切換到懸浮 HUD
   const [runtimeHint, setRuntimeHint] = useState<'record' | 'play' | null>(null);
 
+  // 整體匯入：解析到的 bundle 內容（完整腳本暫存於 ref，待勾選匯入）
+  const pendingBundleScriptsRef = useRef<ClickScript[]>([]);
+  const [pendingBundleSummaries, setPendingBundleSummaries] = useState<SavedScriptSummary[] | null>(null);
 
   // Playback Visual State
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -674,11 +678,90 @@ function App() {
     downloadAnchorNode.remove();
   };
 
+  /** 整體匯出：勾選的腳本打包成單一 JSON 檔（omniclick-bundle 格式） */
+  const handleExportBundle = (ids: string[]) => {
+    const scripts = ids
+      .map((id) => loadScriptById(id))
+      .filter((s): s is ClickScript => !!s);
+
+    if (scripts.length === 0) {
+      alert(t('noScriptsSelected'));
+      return;
+    }
+
+    const bundle: ScriptBundle = {
+      type: 'omniclick-bundle',
+      version: 1,
+      exportedAt: Date.now(),
+      scripts,
+    };
+    const fileName = `omniclick_bundle_${scripts.length}.json`;
+    const jsonContent = JSON.stringify(bundle, null, 2);
+
+    // Android 環境優先走原生儲存流程（host 與 overlay 皆有原生另存）
+    if (android.saveFile(fileName, jsonContent)) return;
+
+    // Fallback: regular browser download via data URL
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(jsonContent);
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", fileName);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  /** 整體匯入：勾選 bundle 中的腳本寫入本機（同 id 直接覆蓋） */
+  const handleImportBundle = (ids: string[]) => {
+    const selected = pendingBundleScriptsRef.current.filter(
+      (s) => s && s.metadata && ids.includes(s.metadata.id)
+    );
+
+    if (selected.length === 0) {
+      alert(t('noScriptsSelected'));
+      return;
+    }
+
+    const saved = saveScriptsBulk(selected);
+    pendingBundleScriptsRef.current = [];
+    setPendingBundleSummaries(null);
+    loadSavedScriptsList();
+    alert(t('importBundleDone', { count: saved }));
+  };
+
+  const handleDismissBundleImport = () => {
+    pendingBundleScriptsRef.current = [];
+    setPendingBundleSummaries(null);
+  };
+
   const handleLoadFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
+
+        // 整體匯入：檔案含 scripts 陣列（omniclick-bundle）→ 畫出勾選清單
+        if (Array.isArray(json.scripts)) {
+          const scripts: ClickScript[] = json.scripts.filter(
+            (s: any) => s && s.metadata && Array.isArray(s.steps)
+          );
+          if (scripts.length === 0) {
+            alert(t('invalidBundle'));
+            return;
+          }
+          pendingBundleScriptsRef.current = scripts;
+          setPendingBundleSummaries(
+            scripts
+              .map((s) => ({
+                id: String(s.metadata.id),
+                name: String(s.metadata.name || 'Script'),
+                updatedAt: s.metadata.updatedAt || Date.now(),
+                stepCount: s.steps.length,
+              }))
+              .sort((a, b) => b.updatedAt - a.updatedAt)
+          );
+          return;
+        }
 
         // 單一腳本（舊格式）：直接載入到編輯器
         const steps = (json.steps || []).map((s: any) => ({
@@ -1007,6 +1090,11 @@ function App() {
         onEnterOverlayMode={handleEnterOverlayMode}
         onOpenA11ySettings={handleOpenA11ySettings}
 
+        // 整體匯入／匯出（勾選）
+        onExportBundle={handleExportBundle}
+        pendingBundleSummaries={pendingBundleSummaries}
+        onImportBundle={handleImportBundle}
+        onDismissBundleImport={handleDismissBundleImport}
       />
 
       {/* Step Editor */}

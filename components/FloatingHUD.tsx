@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { AppMode, ClickScript, ClickStep, SavedScriptSummary } from '../types';
-import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy, ExternalLink, ChevronsUp } from 'lucide-react';
+import { Play, Square, Circle, Save, Upload, Trash2, GripHorizontal, MousePointer2, Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy, Download, ExternalLink, ListChecks, ChevronsUp, X } from 'lucide-react';
 import { SafeNumberInput } from './SafeNumberInput';
 import { MinimizedHUD } from './MinimizedHUD';
 import { PlaybackTimeline } from './PlaybackTimeline';
@@ -77,6 +77,12 @@ interface FloatingHUDProps {
   onEnterOverlayMode?: () => void;
   onOpenA11ySettings?: () => void;
 
+  // 整體匯入／匯出（勾選）
+  onExportBundle?: (ids: string[]) => void;
+  /** 載入 bundle 後由 App 傳入待挑選清單（非 null 時顯示匯入勾選視窗） */
+  pendingBundleSummaries?: SavedScriptSummary[] | null;
+  onImportBundle?: (ids: string[]) => void;
+  onDismissBundleImport?: () => void;
 }
 
 interface LiveDurationDisplayProps {
@@ -283,330 +289,10 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
   onEnterOverlayMode,
   onOpenA11ySettings,
 
-}) => {
-  const { t, lang, toggleLanguage } = useTranslation();
-
-  // Window State
-  const [position, setPosition] = useState({ x: 20, y: 20 });
-  const [size, setSize] = useState({ width: 380, height: 500 }); // Slightly taller default
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isAndroidBridge, setIsAndroidBridge] = useState(() => isAndroidOverlay());
-
-  // 編輯步驟時自動縮小主視窗，露出畫布與底層畫面
-  useEffect(() => {
-    if (selectedStepId !== null) {
-      setIsCollapsed(true);
-    }
-  }, [selectedStepId]);
-
-  // App 畫面按下錄製/播放後觸發切換提示：先把縮小的 HUD 展開，提示視窗才看得到
-  useEffect(() => {
-    if (runtimeHint) {
-      setIsCollapsed(false);
-    }
-  }, [runtimeHint]);
-
-  // Dragging State
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-
-  // Converter UI State
-  const [isConverterOpen, setIsConverterOpen] = useState(false);
-  const [songFile, setSongFile] = useState<File | null>(null);
-  const [mapFile, setMapFile] = useState<File | null>(null);
-
-  // Script Delete Confirmation State
-  const [scriptToDelete, setScriptToDelete] = useState<{ id: string; name: string } | null>(null);
-
-  // App 畫面（host）
-  const [isHost, setIsHost] = useState(false);
-
-  useEffect(() => {
-    setIsHost(isHostApp());
-  }, []);
-Minimize2, ChevronLeft, Plus, Folder, FileJson, CornerRightDown, Check, Music, ArrowRightLeft, FileText, Gauge, Power, Copy, ExternalLink, ChevronsUp } from 'lucide-react';
-import { SafeNumberInput } from './SafeNumberInput';
-import { MinimizedHUD } from './MinimizedHUD';
-import { PlaybackTimeline } from './PlaybackTimeline';
-import { formatTime, parseFormattedTime } from '../utils/format';
-import { blurOnEnter, stopTouchPropagation, handleInputFocus, handleInputBlur } from '../utils/input';
-import {
-  reportOverlayRect,
-  openFilePicker,
-  isAndroidOverlay,
-  isHostApp,
-} from '../utils/android';
-import { clampToViewport, getCollapsedSize } from '../utils/geometry';
-import { stepTypeLabel, getTotalStepsDuration, getStepCumulativeTimes } from '../utils/timeline';
-import { useLiveDuration } from '../hooks/useLiveDuration';
-import { useWindowDrag, getDragClientXY } from '../hooks/useWindowDrag';
-import { usePlaybackProgress } from '../hooks/usePlaybackProgress';
-import { useTranslation } from '../utils/i18n';
-
-interface FloatingHUDProps {
-  mode: AppMode;
-  script: ClickScript;
-  savedScripts: SavedScriptSummary[];
-  isScriptLoaded: boolean;
-  showSaveFeedback?: boolean;
-  sessionStartTime: number | null;
-  isDraggingPoint?: boolean;
-
-  // Actions
-  onRecordToggle: () => void;
-  onPlayToggle: () => void;
-  onClear: () => void; // Clear current steps
-  onDuplicateStep?: () => void; // Duplicate selected step
-
-  // Storage Actions
-  onSaveLocal: () => void; // Save to local storage
-  onExport: () => void; // Export to file
-  onLoadFile: (file: File) => void; // Import from file
-  onLoadLocal: (id: string) => void; // Load from local storage
-  onCreateNew: () => void;
-  onDeleteLocal: (id: string) => void;
-  onCloseScript: () => void; // Go back to menu
-  onExitApp: () => void; // Close the app
-
-  // Converter
-  onConvertSheet: (songFile: File, mapFile: File) => void;
-
-  // Script Config
-  setLoop: (loop: boolean) => void;
-  setLoopCount: (count: number) => void;
-  setScriptName: (name: string) => void;
-  setScriptDuration?: (durationMs: number) => void;
-
-  // Step Interaction
-  onSelectStep: (id: string | null) => void;
-  selectedStepId: string | null;
-
-  // Playback Control
-  playbackSpeed: number;
-  setPlaybackSpeed: (speed: number) => void;
-  // Layout sync back to App / Android
-  onRectChange?: (x: number, y: number, width: number, height: number, isCollapsed: boolean) => void;
-  // Playback progress (由 App 傳入，避免 HUD 自己高頻計算)
-  completedLoops?: number;
-  activePlaybackStepIndex?: number | null;
-  // 本輪起始步驟（從中間開始播放時，首步觸發前的顯示基準）
-  playbackStartIndex?: number;
-
-  // App 畫面（host）專屬：懸浮模式狀態與切換
-  /** 無障礙服務狀態；null＝非 host 語境（瀏覽器/overlay，不顯示控制項） */
-  hostServiceReady?: boolean | null;
-  /** 在 App 畫面按錄製/播放時，由 App 彈出切換提示 */
-  runtimeHint?: 'record' | 'play' | null;
-  onDismissRuntimeHint?: () => void;
-  onEnterOverlayMode?: () => void;
-  onOpenA11ySettings?: () => void;
-
-}
-
-interface LiveDurationDisplayProps {
-  sessionStartTime: number | null;
-  isTimed: boolean;
-  totalDuration: number;
-}
-
-interface EditableDurationDisplayProps {
-  /** 顯示用總長（已除速 ms） */
-  totalDuration: number;
-  playbackSpeed: number;
-  /** 最低允許 base ms（未除速）＝ 全部步驟耗時（含 repeat 展開），避免尾段被裁掉 */
-  minBaseMs: number;
-  /** commit 回傳 base ms（未除速），寫入 metadata.duration */
-  onCommit: (baseMs: number) => void;
-}
-
-/** 閒置時可編輯的總時長：可直接輸入秒數或分:秒，讓總長不必綁定錄製當下長度 */
-const EditableDurationDisplay: React.FC<EditableDurationDisplayProps> = React.memo(({
-  totalDuration,
-  playbackSpeed,
-  minBaseMs,
-  onCommit,
-}) => {
-  const [localStr, setLocalStr] = useState('');
-  const isFocusedRef = useRef(false);
-  const safeSpeed = playbackSpeed > 0 ? playbackSpeed : 1;
-  const minDisplay = minBaseMs / safeSpeed;
-
-  // 非聚焦時同步外部值（例如載入腳本、步驟編輯導致總長變化）
-  useEffect(() => {
-    if (!isFocusedRef.current) {
-      setLocalStr(formatTime(totalDuration));
-    }
-  }, [totalDuration]);
-
-  const handleBlur = (e?: React.FocusEvent<HTMLInputElement>) => {
-    isFocusedRef.current = false;
-    handleInputBlur();
-    const raw = e?.target?.value ?? localStr;
-    const newMs = parseFormattedTime(raw);
-    if (newMs !== null) {
-      const baseMs = Math.max(minBaseMs, Math.round(newMs * safeSpeed));
-      onCommit(baseMs);
-      setLocalStr(formatTime(baseMs / safeSpeed));
-    } else {
-      // 無效輸入：還原顯示值
-      setLocalStr(formatTime(totalDuration));
-    }
-  };
-
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      enterKeyHint="done"
-      autoComplete="off"
-      autoCorrect="off"
-      autoCapitalize="off"
-      spellCheck={false}
-      value={localStr}
-      onChange={(e) => setLocalStr(e.target.value)}
-      onFocus={(e) => {
-        isFocusedRef.current = true;
-        handleInputFocus(e);
-      }}
-      onBlur={handleBlur}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          isFocusedRef.current = false;
-          handleBlur();
-          blurOnEnter(e);
-        }
-      }}
-      onTouchStart={stopTouchPropagation}
-      aria-label="總時長"
-      title={`最低 ${formatTime(minDisplay)}（最後一步含重複觸發時刻）`}
-      className="w-full bg-transparent text-right text-lg font-mono text-white font-semibold tracking-widest outline-none border-b border-transparent focus:border-blue-500 select-text"
-      placeholder="00:00.000"
-      style={{ touchAction: 'manipulation' }}
-    />
-  );
-});
-
-const LiveDurationDisplay: React.FC<LiveDurationDisplayProps> = React.memo(({
-  sessionStartTime,
-  isTimed,
-  totalDuration,
-}) => {
-  const liveDuration = useLiveDuration(sessionStartTime, isTimed, 1000);
-  // 開場倒數期間 live 為負（sessionStart 在未來），顯示箝制為 0
-  const displayDuration = isTimed ? Math.max(0, liveDuration) : totalDuration;
-  return (
-    <div className="text-lg font-mono text-white font-semibold">
-      {formatTime(displayDuration)}
-    </div>
-  );
-});
-
-interface MemoStepRowProps {
-  step: ClickStep;
-  idx: number;
-  isSelected: boolean;
-  displayTime: string;
-  onSelect: (id: string) => void;
-  onDuplicate?: () => void;
-  duplicateTitle: string;
-  setRef: (el: HTMLDivElement | null) => void;
-}
-
-const MemoStepRow: React.FC<MemoStepRowProps> = React.memo(({
-  step,
-  idx,
-  isSelected,
-  displayTime,
-  onSelect,
-  onDuplicate,
-  duplicateTitle,
-  setRef,
-}) => {
-  return (
-    <div
-      ref={setRef}
-      onClick={() => onSelect(step.id)}
-      className={`relative p-3 cursor-pointer rounded mb-1 border ${isSelected
-        ? 'bg-blue-600 border-blue-400 text-white'
-        : 'bg-transparent border-white/5 text-gray-300'
-        }`}
-    >
-      <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2">
-        <div className="flex items-center gap-2 w-24">
-          <span className={`font-mono text-lg opacity-70 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
-            #{idx + 1}
-          </span>
-          <span className="font-semibold text-lg flex items-center gap-1">
-            <span>{stepTypeLabel(step.type)}</span>
-            {step.repeat > 1 && (
-              <span className="text-xs font-black text-amber-400 font-mono">×{step.repeat}</span>
-            )}
-          </span>
-        </div>
-
-        <div className="flex justify-end pr-4">
-          <span className={`font-mono text-[12px] font-black tabular-nums ${isSelected ? 'text-white' : 'text-gray-200'}`}>
-            {displayTime}
-          </span>
-        </div>
-
-        <div className={`w-24 text-right font-mono text-[10px] flex items-center justify-end gap-1 ${isSelected ? 'text-blue-200' : 'text-gray-500'}`}>
-          {isSelected && onDuplicate && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
-              className="p-1 rounded text-blue-200"
-              title={duplicateTitle}
-            >
-              <Copy size={12} />
-            </button>
-          )}
-          {Math.round(step.x)},{Math.round(step.y)}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-export const FloatingHUD: React.FC<FloatingHUDProps> = ({
-  mode,
-  script,
-  savedScripts,
-  isScriptLoaded,
-  showSaveFeedback,
-  sessionStartTime,
-  isDraggingPoint = false,
-  onRecordToggle,
-  onPlayToggle,
-  onClear,
-  onSaveLocal,
-  onExport,
-  onLoadFile,
-  onLoadLocal,
-  onCreateNew,
-  onDeleteLocal,
-  onCloseScript,
-  onExitApp,
-  onConvertSheet,
-  setLoop,
-  setLoopCount,
-  setScriptName,
-  setScriptDuration,
-  onSelectStep,
-  selectedStepId,
-  playbackSpeed,
-  setPlaybackSpeed,
-  onRectChange,
-  onDuplicateStep,
-  completedLoops = 0,
-  activePlaybackStepIndex = null,
-  playbackStartIndex = 0,
-
-  hostServiceReady,
-  runtimeHint,
-  onDismissRuntimeHint,
-  onEnterOverlayMode,
-  onOpenA11ySettings,
-
+  onExportBundle,
+  pendingBundleSummaries,
+  onImportBundle,
+  onDismissBundleImport,
 }) => {
   const { t, lang, toggleLanguage } = useTranslation();
 
@@ -1139,8 +825,23 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                 ))
               )}
 
-              {/* Fixed File Upload for Mobile: Overlay Input */}
+              {/* 固定操作區：批次匯出 / 匯入 */}
               <div className="relative mt-2 pt-2 border-t border-white/10">
+                {/* 批次匯出：勾選要匯出哪些腳本，打包成單一 JSON */}
+                <div
+                  className="flex items-center justify-center gap-2 py-2 text-[12px] text-gray-400 hover:text-gray-200 cursor-pointer transition-colors"
+                  onClick={() => {
+                    if (savedScripts.length === 0) {
+                      alert(t('noScriptsToExport'));
+                      return;
+                    }
+                    openBulk('export', savedScripts);
+                  }}
+                >
+                  <ListChecks size={14} /> {t('bulkExport')}
+                </div>
+
+                {/* 匯入：支援單一腳本 JSON 或整體腳本包（omniclick-bundle） */}
                 <div
                   className="flex items-center justify-center gap-2 py-2 text-[12px] text-gray-400 hover:text-gray-200 cursor-pointer transition-colors"
                   onClick={() => {
@@ -1154,7 +855,7 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
                     type="file"
                     onChange={handleFileChange}
                     accept=".json"
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    className="absolute left-0 right-0 bottom-0 h-[38px] opacity-0 cursor-pointer"
                   />
                 )}
               </div>
@@ -1574,6 +1275,99 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
               >
                 <ExternalLink size={12} />
                 <span>{t('overlayEnter')}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 整體匯入／匯出：勾選腳本清單 */}
+      {bulkMode && (
+        <div
+          className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-3 rounded-xl pointer-events-auto"
+          onClick={(e) => { e.stopPropagation(); closeBulk(); }}
+        >
+          <div
+            className="bg-[#1f2937] border border-white/20 rounded-xl w-full max-w-[300px] shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/10">
+              <div className="flex items-center gap-2 text-sm font-bold text-gray-100">
+                <ListChecks size={15} />
+                <span>{bulkMode === 'export' ? t('bulkExportSelectTitle') : t('bulkImportSelectTitle')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={closeBulk}
+                className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/10"
+                title={t('close')}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
+              <label className="flex items-center gap-1.5 text-[11px] text-gray-300 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={bulkSelection.size === bulkSummaries.length && bulkSummaries.length > 0}
+                  onChange={(e) => changeBulkSelectionAll(e.target.checked)}
+                  className="rounded bg-gray-700 border-gray-600 text-blue-500"
+                />
+                {t('selectAll')}
+              </label>
+              <button
+                type="button"
+                onClick={() => changeBulkSelectionAll(false)}
+                className="text-[11px] text-gray-400 hover:text-gray-200"
+              >
+                {t('selectNone')}
+              </button>
+            </div>
+
+            <div className="flex-1 min-h-0 max-h-[240px] overflow-y-auto custom-scrollbar p-2 space-y-1">
+              {bulkSummaries.length === 0 ? (
+                <div className="h-24 flex items-center justify-center text-[12px] text-gray-500">
+                  {t('noScriptsToExport')}
+                </div>
+              ) : (
+                bulkSummaries.map((s) => (
+                  <label
+                    key={s.id}
+                    className="flex items-center gap-2 px-2 py-2 rounded bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkSelection.has(s.id)}
+                      onChange={() => toggleBulkItem(s.id)}
+                      className="rounded bg-gray-700 border-gray-600 text-blue-500"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12px] text-gray-200 truncate">{s.name}</div>
+                      <div className="text-[10px] text-gray-500 flex gap-2">
+                        <span>{t('scriptCountUnit', { count: s.stepCount })}</span>
+                        <span>{new Date(s.updatedAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="p-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={confirmBulk}
+                disabled={bulkSelection.size === 0}
+                className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-semibold shadow flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+              >
+                {bulkMode === 'export' ? <Download size={13} /> : <Upload size={13} />}
+                <Check size={13} />
+                <span>
+                  {bulkMode === 'export'
+                    ? t('exportCount', { count: bulkSelection.size })
+                    : t('importCount', { count: bulkSelection.size })}
+                </span>
               </button>
             </div>
           </div>

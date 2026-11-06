@@ -63,6 +63,38 @@ export function loadScriptById(id: string): ClickScript | null {
   }
 }
 
+/** 全部腳本（完整內容，供批次匯出挑選） */
+export function loadAllScripts(): ClickScript[] {
+  try {
+    const all = Object.values(readAll()).filter((s): s is ClickScript => !!(s && s.metadata));
+    return all.sort((a, b) => (b.metadata.updatedAt || 0) - (a.metadata.updatedAt || 0));
+  } catch (e) {
+    console.error('Failed to load scripts', e);
+    return [];
+  }
+}
+
+/** 批次儲存（依 metadata.id 覆寫／新增；回傳成功寫入數量） */
+export function saveScriptsBulk(scripts: ClickScript[]): number {
+  try {
+    const all = readAll();
+    let count = 0;
+    for (const script of scripts) {
+      if (!script || !script.metadata || !script.metadata.id) continue;
+      all[script.metadata.id] = {
+        ...script,
+        metadata: { ...script.metadata, updatedAt: script.metadata.updatedAt || Date.now() },
+      };
+      count++;
+    }
+    writeAll(all);
+    return count;
+  } catch (e) {
+    console.error('Storage error', e);
+    return 0;
+  }
+}
+
 /** 依 id 刪除（不存在視為成功） */
 export function deleteScriptById(id: string): void {
   try {

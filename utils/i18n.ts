@@ -37,6 +37,19 @@ export const translations = {
     hostRuntimeNeededTitle: '需要懸浮模式',
     hostRuntimeNeededBody: '錄製／播放要在懸浮 HUD 上執行，才能把點擊／滑動送到其他 App。請先啟用無障礙服務，再進入懸浮模式操作。',
 
+    // 整體匯入／匯出（批次勾選）
+    bulkExport: '批次匯出',
+    bulkImportSelectTitle: '選擇要匯入的腳本',
+    bulkExportSelectTitle: '選擇要匯出的腳本',
+    selectAll: '全選',
+    selectNone: '全不選',
+    exportCount: '匯出 {count} 個腳本',
+    importCount: '匯入 {count} 個腳本',
+    importBundleDone: '已匯入 {count} 個腳本！',
+    invalidBundle: '無效的腳本包檔案',
+    noScriptsSelected: '請先勾選至少一個腳本',
+    noScriptsToExport: '尚無已儲存腳本可匯出',
+    scriptCountUnit: '{count} 步',
 
     // Advanced Features - Sky Sheet Converter
     advancedFeatures: '進階功能',
@@ -128,6 +141,19 @@ export const translations = {
     hostRuntimeNeededTitle: 'Floating HUD required',
     hostRuntimeNeededBody: 'Recording and playback run on the floating HUD, so taps and swipes can be sent to other apps. Enable the Accessibility service first, then enter the floating HUD.',
 
+    // Bulk import / export (selectable)
+    bulkExport: 'Bulk Export',
+    bulkImportSelectTitle: 'Select scripts to import',
+    bulkExportSelectTitle: 'Select scripts to export',
+    selectAll: 'Select all',
+    selectNone: 'Clear all',
+    exportCount: 'Export {count} script(s)',
+    importCount: 'Import {count} script(s)',
+    importBundleDone: 'Imported {count} script(s)!',
+    invalidBundle: 'Invalid script bundle file',
+    noScriptsSelected: 'Select at least one script',
+    noScriptsToExport: 'No saved scripts to export yet',
+    scriptCountUnit: '{count} steps',
 
     // Advanced Features - Sky Sheet Converter
     advancedFeatures: 'Advanced Features',
