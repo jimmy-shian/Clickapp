@@ -38,6 +38,8 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(StartupAdPlugin.class);
+        // 系統列（狀態列／導覽列）安全區量測：edge-to-edge 下讓開場畫面避開上下導覽列
+        registerPlugin(SafeAreaPlugin.class);
         super.onCreate(savedInstanceState);
     }
 

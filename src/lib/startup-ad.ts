@@ -5,8 +5,11 @@ interface StartupAdPlugin {
   /**
    * 在指定的畫面位置 (css px = dp) 上放置 AdMob 原生進階廣告卡片。
    * 由 plugin 以原生 NativeAdView 渲染，確保曝光與點擊歸因正確。
+   * height ＝ 廣告槽高度，原生卡片會依此縮排，不會溢出版位蓋住其他元素。
    */
-  showNativeAt(options: { adUnitId: string; x: number; y: number; width: number }): Promise<{ loaded: boolean }>;
+  showNativeAt(options: { adUnitId: string; x: number; y: number; width: number; height?: number }): Promise<{ loaded: boolean }>;
+  /** 版面位移（旋轉／系統列 inset 變化）時只重新定位既有卡片，不重新載入廣告 */
+  updateNativeAt(options: { x: number; y: number; width: number }): Promise<void>;
   hideNative(): Promise<void>;
 }
 
@@ -52,11 +55,27 @@ export function showNativeAdInSlot(slot: HTMLElement | null, adUnitKey: AdUnitKe
     x: rect.left,
     y: rect.top,
     width: rect.width,
+    height: rect.height,
   }).catch((error) => {
     console.warn('[AdMob] native ad was skipped:', error);
     // 請求失敗時僅釋放佔用，不派發事件，避免多個 slot 在錯誤情境下互相觸發重試迴圈。
     if (activeSlot === slot) activeSlot = null;
   });
+}
+
+/**
+ * 版面位移後重新定位原生廣告卡片（不重新載入廣告，避免重複曝光計數）。
+ * 沒有已載入的原生廣告時直接略過。
+ */
+export function updateNativeAdInSlot(slot: HTMLElement | null): void {
+  if (!Capacitor.isNativePlatform() || !slot) return;
+  const rect = slot.getBoundingClientRect();
+  if (rect.width < 80) return;
+  void StartupAd.updateNativeAt({
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+  }).catch(() => undefined);
 }
 
 /** 廣告槽關閉（倒數結束 / 後門略過）時移除原生廣告層，並派發事件讓其餘可見 slot 接手。 */

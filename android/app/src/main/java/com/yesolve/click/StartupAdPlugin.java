@@ -46,9 +46,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class StartupAdPlugin extends Plugin {
 
     private static final long LOAD_TIMEOUT_MS = 8000L;
+    /** 網頁未提供廣告槽高度時的預設卡片高度（dp） */
+    private static final float DEFAULT_AD_HEIGHT_DP = 220f;
 
     private FrameLayout overlayRoot;
     private NativeAd currentAd;
+    /** 目前顯示中的原生廣告卡片（供 updateNativeAt 重新定位，不需重新載入廣告） */
+    private NativeAdView currentAdView;
 
     /**
      * 每次 showNativeAt／hideNative 遞增；用來作廢仍在載入中的請求，
@@ -62,6 +66,8 @@ public class StartupAdPlugin extends Plugin {
         double x = call.getDouble("x", 0d);
         double y = call.getDouble("y", 0d);
         double w = call.getDouble("width", 320d);
+        // 廣告槽高度（css px = dp）：原生卡片依此縮排，確保不超出設計版位
+        double h = call.getDouble("height", 0d);
         Activity activity = getActivity();
         if (adUnitId.isEmpty() || activity == null || activity.isFinishing()) {
             resolveLoaded(call, false);
@@ -89,8 +95,9 @@ public class StartupAdPlugin extends Plugin {
                     if (generation != loadGeneration.get()) { ad.destroy(); resolveLoaded(call, false); return; }
                     if (activity.isFinishing()) { ad.destroy(); resolveLoaded(call, false); return; }
                     float widthDp = (float) Math.max(200f, w);
-                    NativeAdView adView = buildNativeAdView(activity, ad, widthDp);
-                    boolean placed = attachOverlay(activity, ad, adView, (float) x, (float) y);
+                    float heightDp = h > 0f ? (float) h : DEFAULT_AD_HEIGHT_DP;
+                    NativeAdView adView = buildNativeAdView(activity, ad, widthDp, heightDp);
+                    boolean placed = attachOverlay(activity, ad, adView, (float) x, (float) y, widthDp);
                     resolveLoaded(call, placed);
                 })
                 .withAdListener(new AdListener() {
@@ -104,6 +111,34 @@ public class StartupAdPlugin extends Plugin {
                 .build();
             loader.loadAd(new AdRequest.Builder().build());
         }));
+    }
+
+    /**
+     * 版面變動（例如旋轉、系統列 inset 變化）時只重新定位既有廣告卡片，
+     * 不重新載入廣告，避免曝光計數被重複計算。
+     */
+    @PluginMethod
+    public void updateNativeAt(PluginCall call) {
+        double x = call.getDouble("x", 0d);
+        double y = call.getDouble("y", 0d);
+        double w = call.getDouble("width", 320d);
+        Activity activity = getActivity();
+        NativeAdView adView = currentAdView;
+        if (activity == null || adView == null) {
+            call.resolve();
+            return;
+        }
+        float density = activity.getResources().getDisplayMetrics().density;
+        activity.runOnUiThread(() -> {
+            ViewGroup.LayoutParams raw = adView.getLayoutParams();
+            if (!(raw instanceof FrameLayout.LayoutParams)) return;
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+            lp.leftMargin = Math.round((float) x * density);
+            lp.topMargin = Math.round((float) y * density);
+            lp.width = Math.round((float) Math.max(200f, w) * density);
+            adView.setLayoutParams(lp);
+        });
+        call.resolve();
     }
 
     @PluginMethod
@@ -125,7 +160,7 @@ public class StartupAdPlugin extends Plugin {
 
     // ------------------------------------------------------------------ //
 
-    private boolean attachOverlay(Activity activity, NativeAd ad, NativeAdView adView, float xDp, float yDp) {
+    private boolean attachOverlay(Activity activity, NativeAd ad, NativeAdView adView, float xDp, float yDp, float widthDp) {
         hideOverlayInternal();
         ViewGroup content = activity.findViewById(android.R.id.content);
         if (content == null || adView.getParent() != null) {
@@ -133,7 +168,9 @@ public class StartupAdPlugin extends Plugin {
             return false;
         }
         float density = activity.getResources().getDisplayMetrics().density;
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) adView.getLayoutParams();
+        // adView 尚未掛上父層、沒有 LayoutParams，必須自行建立（直接取會是 null 而崩潰）
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            Math.round(widthDp * density), ViewGroup.LayoutParams.WRAP_CONTENT);
         lp.leftMargin = Math.round(xDp * density);
         lp.topMargin = Math.round(yDp * density);
         adView.setLayoutParams(lp);
@@ -146,6 +183,7 @@ public class StartupAdPlugin extends Plugin {
 
         overlayRoot = root;
         currentAd = ad;
+        currentAdView = adView;
         return true;
     }
 
@@ -155,6 +193,7 @@ public class StartupAdPlugin extends Plugin {
             currentAd = null;
             try { ad.destroy(); } catch (Exception ignored) {}
         }
+        currentAdView = null;
         if (overlayRoot != null) {
             ViewGroup parent = (ViewGroup) overlayRoot.getParent();
             if (parent != null) parent.removeView(overlayRoot);
@@ -165,10 +204,39 @@ public class StartupAdPlugin extends Plugin {
     /**
      * 程式化建立 NativeAdView 卡片（深色面板，貼合 6 個 App 的深色調性）。
      * 必須先註冊 asset views 再 setNativeAd，Google 才會記錄曝光與點擊。
+     *
+     * maxHeightDp ＝ 網頁設計好的廣告槽高度：卡片版面依此預算縮排，
+     * 確保原生廣告不會超出版位、蓋住下方的 HUD 元素（步驟列／頁尾）。
      */
-    private NativeAdView buildNativeAdView(Activity activity, NativeAd ad, float widthDp) {
+    private NativeAdView buildNativeAdView(Activity activity, NativeAd ad, float widthDp, float maxHeightDp) {
         float density = activity.getResources().getDisplayMetrics().density;
-        int pad = dp(density, 12);
+
+        // ---- 版面高度預算（dp）----
+        int budgetDp = (int) Math.max(0f, Math.floor(maxHeightDp));
+        boolean roomy = budgetDp >= 180;
+        int padDp = roomy ? 10 : 6;
+        int badgeDp = roomy ? 18 : 16;
+        int gapDp = roomy ? 8 : 6;
+        int gapCtaDp = roomy ? 10 : 8;
+        int gapBodyDp = 6;
+        int gapStarsDp = 6;
+        int headlineDp = roomy ? 40 : 20;  // 寬版位標題最多兩行，窄版位限一行
+        int bodyDp = 34;                  // 內文最多兩行
+        int starsDp = 16;
+        int ctaDp = roomy ? 40 : 32;
+
+        int fixedDp = padDp * 2 + badgeDp + gapDp + gapDp + headlineDp + gapCtaDp + ctaDp;
+        int freeDp = budgetDp - fixedDp;
+        // 媒體至少留 56dp，否則先捨棄內文／評星，把空間留給媒體
+        boolean showBody = freeDp - (gapBodyDp + bodyDp) >= 56 && !TextUtils.isEmpty(ad.getBody());
+        boolean showStars = showBody && ad.getStarRating() != null && ad.getStarRating() > 0
+                && freeDp - (gapBodyDp + bodyDp) - (gapStarsDp + starsDp) >= 56;
+        int mediaDp = freeDp
+                - (showBody ? gapBodyDp + bodyDp : 0)
+                - (showStars ? gapStarsDp + starsDp : 0);
+        mediaDp = Math.max(0, Math.min(mediaDp, 180));
+
+        int pad = dp(density, padDp);
 
         LinearLayout card = new LinearLayout(activity);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -215,19 +283,16 @@ public class StartupAdPlugin extends Plugin {
         }
         card.addView(row);
 
-        // 媒體視覺
+        // 媒體視覺（高度取自版位預算，確保整張卡片不超出廣告槽）
         MediaView mediaView = null;
         TextView headlineView = null;
         TextView bodyView = null;
         MediaContent mediaContent = ad.getMediaContent();
-        if (mediaContent != null) {
-            float inner = widthDp - 24f;
-            float ratio = mediaContent.getAspectRatio() > 0f ? mediaContent.getAspectRatio() : 1.2f;
-            int mediaHeight = (int) Math.max(dp(density, 120), Math.min(dp(density, 220), inner / ratio));
+        if (mediaContent != null && mediaDp > 0) {
             mediaView = new MediaView(activity);
             LinearLayout.LayoutParams mediaLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, mediaHeight);
-            mediaLp.topMargin = dp(density, 10);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(density, mediaDp));
+            mediaLp.topMargin = dp(density, gapDp);
             mediaView.setLayoutParams(mediaLp);
             card.addView(mediaView);
         }
@@ -238,38 +303,40 @@ public class StartupAdPlugin extends Plugin {
             headlineView.setTextColor(Color.WHITE);
             headlineView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 15);
             headlineView.setTypeface(Typeface.DEFAULT_BOLD);
-            headlineView.setMaxLines(2);
+            headlineView.setMaxLines(roomy ? 2 : 1);
             headlineView.setEllipsize(TextUtils.TruncateAt.END);
+            headlineView.setGravity(Gravity.CENTER_VERTICAL);
             LinearLayout.LayoutParams hLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            hLp.topMargin = dp(density, 10);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(density, headlineDp));
+            hLp.topMargin = dp(density, gapDp);
             headlineView.setLayoutParams(hLp);
             card.addView(headlineView);
         }
 
-        if (!TextUtils.isEmpty(ad.getBody())) {
+        if (showBody) {
             bodyView = new TextView(activity);
             bodyView.setText(ad.getBody());
             bodyView.setTextColor(Color.parseColor("#D1D5DB"));
             bodyView.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
-            bodyView.setMaxLines(3);
+            bodyView.setMaxLines(2);
             bodyView.setEllipsize(TextUtils.TruncateAt.END);
+            bodyView.setGravity(Gravity.CENTER_VERTICAL);
             bodyView.setLineSpacing(dp(density, 2), 1f);
             LinearLayout.LayoutParams bLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            bLp.topMargin = dp(density, 6);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(density, bodyDp));
+            bLp.topMargin = dp(density, gapBodyDp);
             bodyView.setLayoutParams(bLp);
             card.addView(bodyView);
         }
 
-        if (ad.getStarRating() != null && ad.getStarRating() > 0) {
+        if (showStars) {
             TextView stars = new TextView(activity);
             stars.setText("★ " + ad.getStarRating());
             stars.setTextColor(Color.parseColor("#FBBF24"));
             stars.setTextSize(TypedValue.COMPLEX_UNIT_DIP, 12);
             LinearLayout.LayoutParams sLp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            sLp.topMargin = dp(density, 6);
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(density, starsDp));
+            sLp.topMargin = dp(density, gapStarsDp);
             stars.setLayoutParams(sLp);
             card.addView(stars);
         }
@@ -286,8 +353,8 @@ public class StartupAdPlugin extends Plugin {
         ctaBg.setCornerRadius(dp(density, 10));
         cta.setBackground(ctaBg);
         LinearLayout.LayoutParams ctaLp = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(density, 42));
-        ctaLp.topMargin = dp(density, 12);
+            LinearLayout.LayoutParams.MATCH_PARENT, dp(density, ctaDp));
+        ctaLp.topMargin = dp(density, gapCtaDp);
         cta.setLayoutParams(ctaLp);
         card.addView(cta);
 
