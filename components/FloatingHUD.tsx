@@ -1284,85 +1284,110 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
       {/* 整體匯入／匯出：勾選腳本清單 */}
       {bulkMode && (
         <div
-          className="absolute inset-0 bg-black/80 z-50 flex items-center justify-center p-3 rounded-xl pointer-events-auto"
+          className="absolute inset-0 bg-black/85 z-50 flex items-center justify-center p-2 rounded-xl pointer-events-auto select-none"
           onClick={(e) => { e.stopPropagation(); closeBulk(); }}
         >
           <div
-            className="bg-[#1f2937] border border-white/20 rounded-xl w-full max-w-[300px] shadow-2xl flex flex-col overflow-hidden"
+            className="bg-[#1f2937] border border-white/20 rounded-xl w-full h-full max-h-full shadow-2xl flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/10">
-              <div className="flex items-center gap-2 text-sm font-bold text-gray-100">
-                <ListChecks size={15} />
-                <span>{bulkMode === 'export' ? t('bulkExportSelectTitle') : t('bulkImportSelectTitle')}</span>
+            {/* Region A: 固定標題區 (可拖曳視窗) */}
+            <div
+              className="flex items-center justify-between px-3 py-2.5 border-b border-white/10 shrink-0 cursor-move touch-none bg-white/5"
+              onMouseDown={handleMouseDown}
+              onTouchStart={handleTouchStart}
+            >
+              <div className="flex items-center gap-2 text-sm font-bold text-gray-100 min-w-0">
+                <ListChecks size={16} className="text-blue-400 shrink-0" />
+                <span className="truncate">{bulkMode === 'export' ? t('bulkExportSelectTitle') : t('bulkImportSelectTitle')}</span>
               </div>
               <button
                 type="button"
                 onClick={closeBulk}
-                className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/10"
+                className="text-gray-400 hover:text-white p-1 rounded hover:bg-white/10 shrink-0 ml-1"
                 title={t('close')}
               >
-                <X size={14} />
+                <X size={15} />
               </button>
             </div>
 
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
-              <label className="flex items-center gap-1.5 text-[11px] text-gray-300 cursor-pointer select-none">
+            {/* Region A sub: 全選 / 全不選 */}
+            <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5 bg-white/[0.02] shrink-0">
+              <label
+                className="flex items-center gap-2 text-[11px] text-gray-300 cursor-pointer select-none"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  changeBulkSelectionAll(bulkSelection.size !== bulkSummaries.length || bulkSummaries.length === 0);
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={bulkSelection.size === bulkSummaries.length && bulkSummaries.length > 0}
-                  onChange={(e) => changeBulkSelectionAll(e.target.checked)}
-                  className="rounded bg-gray-700 border-gray-600 text-blue-500"
+                  readOnly
+                  className="rounded bg-gray-700 border-gray-600 text-blue-500 pointer-events-none"
                 />
-                {t('selectAll')}
+                <span>{t('selectAll')}</span>
               </label>
               <button
                 type="button"
                 onClick={() => changeBulkSelectionAll(false)}
-                className="text-[11px] text-gray-400 hover:text-gray-200"
+                className="text-[11px] text-gray-400 hover:text-gray-200 active:text-white px-1.5 py-0.5 rounded hover:bg-white/5"
               >
                 {t('selectNone')}
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 max-h-[240px] overflow-y-auto custom-scrollbar p-2 space-y-1">
+            {/* Region B: 可捲動腳本清單 (高度自適應剩餘空間) */}
+            <div
+              className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-2 space-y-1.5"
+              style={{ touchAction: 'pan-y', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
+            >
               {bulkSummaries.length === 0 ? (
-                <div className="h-24 flex items-center justify-center text-[12px] text-gray-500">
+                <div className="h-full min-h-[100px] flex items-center justify-center text-[12px] text-gray-400">
                   {t('noScriptsToExport')}
                 </div>
               ) : (
-                bulkSummaries.map((s) => (
-                  <label
-                    key={s.id}
-                    className="flex items-center gap-2 px-2 py-2 rounded bg-white/5 border border-white/5 cursor-pointer hover:bg-white/10"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bulkSelection.has(s.id)}
-                      onChange={() => toggleBulkItem(s.id)}
-                      className="rounded bg-gray-700 border-gray-600 text-blue-500"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[12px] text-gray-200 truncate">{s.name}</div>
-                      <div className="text-[10px] text-gray-500 flex gap-2">
-                        <span>{t('scriptCountUnit', { count: s.stepCount })}</span>
-                        <span>{new Date(s.updatedAt).toLocaleDateString()}</span>
+                bulkSummaries.map((s) => {
+                  const isChecked = bulkSelection.has(s.id);
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => toggleBulkItem(s.id)}
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg border transition-colors cursor-pointer select-none active:scale-[0.99] ${
+                        isChecked
+                          ? 'bg-blue-900/25 border-blue-500/40 text-white'
+                          : 'bg-white/5 border-white/5 text-gray-300 hover:bg-white/10'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        readOnly
+                        className="rounded bg-gray-700 border-gray-600 text-blue-500 pointer-events-none shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12px] font-medium truncate text-gray-100">{s.name}</div>
+                        <div className="text-[10px] text-gray-400 flex items-center gap-2 mt-0.5">
+                          <span>{t('scriptCountUnit', { count: s.stepCount })}</span>
+                          <span>•</span>
+                          <span>{new Date(s.updatedAt).toLocaleDateString()}</span>
+                        </div>
                       </div>
                     </div>
-                  </label>
-                ))
+                  );
+                })
               )}
             </div>
 
-            <div className="p-3 border-t border-white/10">
+            {/* Region C: 固定底部操作區 (避開縮放把手) */}
+            <div className="p-2.5 border-t border-white/10 shrink-0 bg-white/[0.02]">
               <button
                 type="button"
                 onClick={confirmBulk}
                 disabled={bulkSelection.size === 0}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded text-xs font-semibold shadow flex items-center justify-center gap-1.5 active:scale-95 transition-transform"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold shadow flex items-center justify-center gap-2 active:scale-95 transition-all"
               >
-                {bulkMode === 'export' ? <Download size={13} /> : <Upload size={13} />}
-                <Check size={13} />
+                {bulkMode === 'export' ? <Download size={14} /> : <Upload size={14} />}
                 <span>
                   {bulkMode === 'export'
                     ? t('exportCount', { count: bulkSelection.size })
@@ -1374,18 +1399,20 @@ export const FloatingHUD: React.FC<FloatingHUDProps> = ({
         </div>
       )}
 
-      {/* Resize Handle */}
-      <div
-        className="absolute bottom-0 right-0 w-16 h-16 z-50 pointer-events-none flex items-end justify-end"
-      >
+      {/* Resize Handle - bulkMode 開啟時隱藏，避免覆蓋底部匯出按鈕 */}
+      {!bulkMode && (
         <div
-          onMouseDown={handleResizeMouseDown}
-          onTouchStart={handleResizeTouchStart}
-          className="pointer-events-auto w-8 h-8 cursor-se-resize flex items-center justify-center text-white/30"
+          className="absolute bottom-0 right-0 w-16 h-16 z-50 pointer-events-none flex items-end justify-end"
         >
-          <CornerRightDown size={14} strokeWidth={3} />
+          <div
+            onMouseDown={handleResizeMouseDown}
+            onTouchStart={handleResizeTouchStart}
+            className="pointer-events-auto w-8 h-8 cursor-se-resize flex items-center justify-center text-white/30"
+          >
+            <CornerRightDown size={14} strokeWidth={3} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
